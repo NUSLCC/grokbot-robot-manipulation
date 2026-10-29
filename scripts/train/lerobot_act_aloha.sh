@@ -2,7 +2,7 @@
 # Train ACT from scratch on the ALOHA sim transfer-cube human demos, with periodic sim eval.
 # LeRobot HW guide: ACT ~2-6 GB peak at batch 8; ~30-60 min for 5 epochs of a ~45k-frame dataset on a 4090 (indicative).
 set -euo pipefail
-source "$(dirname "$0")/../lib/common.sh"; clean_python_env
+source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 : "${STEPS:=20000}"; : "${BATCH:=8}"; : "${EVAL_FREQ:=5000}"
 ENV="$RSP_ENVS/lerobot"; [ -x "$ENV/bin/lerobot-train" ] || die "Run scripts/10_install_lerobot.sh first"
 OUT="$RSP_CKPT/act_aloha_transfer_cube_$(stamp)"

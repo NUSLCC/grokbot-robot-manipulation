@@ -2,7 +2,7 @@
 # GR00T N1.7 LIBERO eval (server-client), from examples/LIBERO/README.md (tag n1.7-release).
 #   GROOT_SUITE=libero_10|libero_spatial|libero_object|libero_goal   ENV_NAME=libero_sim/<task>  (see that README's task list)
 set -euo pipefail
-source "$(dirname "$0")/../lib/common.sh"; clean_python_env; ensure_uv
+source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection; ensure_uv
 : "${GROOT_SUITE:=libero_10}"; : "${N_EPISODES:=5}"; : "${N_ENVS:=5}"; : "${PORT:=5555}"
 : "${ENV_NAME:=libero_sim/KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it}"
 SRC="$RSP_SRC/Isaac-GR00T"; [ -d "$SRC/.venv" ] || die "Run scripts/13_install_groot.sh first"

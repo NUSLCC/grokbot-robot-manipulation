@@ -1,4 +1,4 @@
-# Robot Manipulation Simulation Platform (RTX 4090 / Ubuntu 22.04 / Isaac Lab 3.0)
+# Robot Manipulation Simulation Platform (RTX 3090 / Ubuntu 22.04 / Isaac Lab 3.0)
 
 ## Quick start
 
@@ -17,7 +17,7 @@ from the Notion review (VLAs, imitation learning, RL fine-tuning) on **one works
 | Target | Value |
 |---|---|
 | OS | Ubuntu 22.04 |
-| GPU | 1x RTX 4090, 24 GB, Ada (compute capability 8.9) |
+| GPU | RTX 3090 (24 GB), 1 or 2 GPUs, Ampere (compute capability 8.6) |
 | Driver | 595 (you reported it) |
 | Already installed | **Isaac Sim 6.2.0 + Isaac Lab 3.0.0 (release/3.0.0).** The kit never reinstalls or changes them. |
 
@@ -30,7 +30,7 @@ from the Notion review (VLAs, imitation learning, RL fine-tuning) on **one works
 ## 1. Architecture
 
 ```
-                         ┌───────────────────────────── RTX 4090 (24 GB) ─────────────────────────────┐
+                         ┌────────────── RTX 3090 (24 GB, 1–2 GPUs) ───────────────┐
   Policy frameworks      │  LeRobot env     openpi env       OpenVLA-OFT env   GR00T env      RLinf env │
   (one env each,         │  py3.12/cu128    py3.11/JAX+cu12  py3.10/torch2.2   py3.12/cu128   py3.11    │
    never shared)         │  ACT, DP,        pi0, pi0-FAST,   OpenVLA-OFT 7B    GR00T N1.7 3B  PPO/GRPO  │
@@ -55,18 +55,18 @@ Design rules:
 4. Each script uses `set -euo pipefail`, can be rerun safely, writes to `~/robot-sim/logs`, and logs the commit of every repo it clones
    to `logs/commits.txt`.
 
-## 2. What fits on a 24 GB RTX 4090
+## 2. What fits on a 24 GB RTX 3090
 
 The numbers come from each project's own README or docs. "—" means the project does not publish the figure.
 
 | Method (review) | Framework / env | Inference VRAM | Fine-tune mode that fits 24 GB | Official sim benchmarks |
 |---|---|---|---|---|
-| **π0 / π0-FAST / π0.5** | openpi (JAX) | **> 8 GB** (README; example GPU RTX 4090) | **LoRA: > 22.5 GB** (README lists RTX 4090), so it fits but tightly. Full FT needs > 70 GB and does **not fit**. Configs: `pi0_libero_low_mem_finetune`, `pi0_fast_libero_low_mem_finetune`. openpi-PyTorch has **no LoRA**. | LIBERO (π0.5: 98.8/98.2/98.0/92.4), ALOHA-sim |
+| **π0 / π0-FAST / π0.5** | openpi (JAX) | **> 8 GB** (README; 24 GB class) | **LoRA: > 22.5 GB** (README 24 GB class), so it fits but tightly. Full FT needs > 70 GB and does **not fit**. Configs: `pi0_libero_low_mem_finetune`, `pi0_fast_libero_low_mem_finetune`. openpi-PyTorch has **no LoRA**. | LIBERO (π0.5: 98.8/98.2/98.0/92.4), ALOHA-sim |
 | π0 / π0.5 (PyTorch port) | LeRobot | — (unverified, expect similar to openpi) | Guide says "24 GB tight at BS 1" (24–40 GB group). Frozen VLM (`train_expert_only`) plus grad checkpointing at BS 1–4 is **unverified**. | LIBERO (LeRobot π0.5: 97.0/99.0/98.0/96.0) |
-| **OpenVLA-OFT** (7B) | openvla-oft (conda) | **~16 GB** LIBERO (README) | Training at BS 1 needs **~25 GB** (LIBERO.md), so it does **not fit** per upstream numbers. Upstream offers 8/4-bit loading for inference only. | LIBERO 4 suites (97.1% avg), ALOHA (real) |
+| **OpenVLA-OFT** (7B) | openvla-oft (conda) | **~16 GB** LIBERO (README) | Training at BS 1 needs **~25 GB** (LIBERO.md), so it does **not fit** per upstream numbers. Upstream offers 8/4-bit loading for inference only. Works on Ampere (bf16) with flash-attn; our scripts build it automatically when a CUDA 12.x toolkit is present. | LIBERO 4 suites (97.1% avg), ALOHA (real) |
 | **SmolVLA** (450M) | LeRobot | — (small; unverified) | **Full fine-tune fits.** About 10–16 GB at BS 8 (LeRobot HW guide). | LIBERO (`lerobot/smolvla_libero` released). The paper also reports Meta-World (unverified here). |
-| **GR00T N1.7** (3B) | Isaac-GR00T (uv) | **16 GB+** (README lists RTX 4090) | Official minimum is 40 GB+. Default FT (projector + DiT) peaks around 35 GB, so it does **not fit** per upstream. A small-batch attempt is unverified. | LIBERO (97.65/97.5/98.45/94.35), SimplerEnv Bridge and Fractal, RoboCasa, RoboLab |
-| **Diffusion Policy** | LeRobot / ManiSkill baseline | small | **Full training fits.** About 8–14 GB at BS 8 (LeRobot); ~2–4 h for 5 epochs on a 4090 (indicative). | PushT (LeRobot's DP reference env); ManiSkill3 DP baseline; any LeRobot sim env (e.g. LIBERO) |
+| **GR00T N1.7** (3B) | Isaac-GR00T (uv) | **16 GB+** (24 GB class noted in README) | Official minimum is 40 GB+. Default FT (projector + DiT) peaks around 35 GB, so it does **not fit** per upstream. A small-batch attempt is unverified. | LIBERO (97.65/97.5/98.45/94.35), SimplerEnv Bridge and Fractal, RoboCasa, RoboLab |
+| **Diffusion Policy** | LeRobot / ManiSkill baseline | small | **Full training fits.** About 8–14 GB at BS 8 (LeRobot); ~2–4 h for 5 epochs on a 24 GB 3090-class GPU (indicative). | PushT (LeRobot's DP reference env); ManiSkill3 DP baseline; any LeRobot sim env (e.g. LIBERO) |
 | **ACT** | LeRobot | small | **Full training fits.** About 2–6 GB at BS 8; ~30–60 min (indicative). | ALOHA-sim (LeRobot's ACT reference env); any LeRobot sim env |
 | **SimpleVLA-RL** (OFT + veRL) | conda | ~16 GB (OFT) | RL tested on **8× A800 80 GB**, so it does **not fit**. Eval-only (`val_only`) might work (unverified). | LIBERO, RoboTwin 1.0/2.0 |
 | **RLinf** (VLA RL) | uv or Docker | model-dependent | Single 24 GB GPU **not documented** (unverified). Supports OFT, π0/π0.5, GR00T on ManiSkill, LIBERO and Isaac Lab. | ManiSkill3, LIBERO, LIBERO-Pro/Plus, Isaac Lab |
@@ -98,6 +98,14 @@ bash scripts/18_install_simplevla_rl.sh  # phase 3, optional: code/eval only on 
 I_UNDERSTAND_ARENA_IS_ALPHA=1 bash scripts/19_install_isaaclab_arena.sh   # optional
 ```
 Or run phase 1 end to end: `QUICK=1 bash scripts/run_phase1.sh`.
+
+### Multi-GPU (optional, Ampere 3090 x2)
+- Set GPUs for any script with GPUS or NUM_GPUS:
+  - Example: `GPUS=0,1 bash scripts/11_install_openpi.sh` (JAX will use both devices); `NUM_GPUS=2 bash scripts/train/isaaclab_rl_franka.sh` (limits visibility to the first 2).
+  - The kit applies `CUDA_VISIBLE_DEVICES` automatically from these variables; defaults remain single-GPU.
+- Safe concurrency: run two independent jobs, one per card:
+  - Terminal A: `CUDA_VISIBLE_DEVICES=0 bash scripts/train/lerobot_act_aloha.sh`
+  - Terminal B: `CUDA_VISIBLE_DEVICES=1 TRIALS=5 SUITE=libero_object bash scripts/eval/openpi_pi05_libero.sh`
 
 **Before downloading models:** run `~/robot-sim/envs/lerobot/bin/hf auth login` and accept the licenses for the gated repos
 `google/paligemma-3b-pt-224` (π0/π0.5 in LeRobot) and `nvidia/Cosmos-Reason2-2B` (all GR00T N1.7 checkpoints).

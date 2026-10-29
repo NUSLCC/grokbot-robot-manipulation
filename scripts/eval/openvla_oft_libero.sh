@@ -2,7 +2,7 @@
 # OpenVLA-OFT released LIBERO checkpoints (~16 GB VRAM for LIBERO inference per README).
 # Default 500 trials (10 tasks x 50) is the paper protocol; we default to 5/task for a quick run.
 set -euo pipefail
-source "$(dirname "$0")/../lib/common.sh"; clean_python_env
+source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 : "${SUITE:=libero_spatial}"; : "${TRIALS:=5}"; : "${SEED:=7}"
 : "${CKPT:=moojink/openvla-7b-oft-finetuned-${SUITE//_/-}}"
 PY="$RSP_ENVS/conda/openvla-oft/bin/python"; SRC="$RSP_SRC/openvla-oft"

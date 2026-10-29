@@ -40,6 +40,23 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # ver_ge A B  -> true if version A >= B
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
 
+# GPU selection: set CUDA_VISIBLE_DEVICES from GPUS (e.g., "0,1") or NUM_GPUS (first N GPUs)
+apply_gpu_selection() {
+  if [ -n "${GPUS:-}" ]; then
+    export CUDA_VISIBLE_DEVICES="$GPUS"
+    # Infer NUM_GPUS if not provided
+    if [ -z "${NUM_GPUS:-}" ]; then NUM_GPUS="$(awk -F, '{print NF}' <<<"$GPUS")"; export NUM_GPUS; fi
+    log "Using GPUs (CUDA_VISIBLE_DEVICES): $CUDA_VISIBLE_DEVICES"
+  elif [ -n "${NUM_GPUS:-}" ]; then
+    # Select first NUM_GPUS devices
+    if [ "$NUM_GPUS" -gt 0 ] 2>/dev/null; then
+      local sel; sel=$(seq -s, 0 $((NUM_GPUS - 1)))
+      export CUDA_VISIBLE_DEVICES="$sel"
+      log "Using first $NUM_GPUS GPU(s): $CUDA_VISIBLE_DEVICES"
+    fi
+  fi
+}
+
 start_log() {
   # start_log NAME -> tee all stdout/stderr to $RSP_LOGS/NAME_$(stamp).txt
   local name="${1:-run}"; mkdir -p "$RSP_LOGS"

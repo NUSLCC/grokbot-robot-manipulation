@@ -5,7 +5,7 @@
 # Official reference (openpi README): pi0.5 @30k: spatial 98.8 / object 98.2 / goal 98.0 / libero_10 92.4.
 # Custom checkpoint: SERVER_ARGS="policy:checkpoint --policy.config=pi05_libero --policy.dir=/path/to/ckpt"
 set -euo pipefail
-source "$(dirname "$0")/../lib/common.sh"; clean_python_env; ensure_uv
+source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection; ensure_uv
 : "${SUITE:=libero_spatial}"; : "${TRIALS:=5}"; : "${PORT:=8000}"; : "${SERVER_ARGS:=}"
 SRC="$RSP_SRC/openpi"; [ -d "$SRC/.venv" ] || die "Run scripts/11_install_openpi.sh first"
 OUT="$RSP_LOGS/eval_openpi_libero_$(stamp)"; mkdir -p "$OUT"

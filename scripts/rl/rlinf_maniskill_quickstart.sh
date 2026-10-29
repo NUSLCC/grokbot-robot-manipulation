@@ -3,7 +3,7 @@
 # Steps 1-2 run automatically; step 3 (YAML path edits) must be done by you, then rerun with CONFIG_EDITED=1.
 # Single-RTX-4090 feasibility for a 7B actor + rollout is UNVERIFIED (upstream examples target multi-GPU).
 set -euo pipefail
-source "$(dirname "$0")/../lib/common.sh"; clean_python_env
+source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 SRC="$RSP_SRC/RLinf"; VENV="$RSP_ENVS/rlinf-openvla-oft"; M="$RSP_CKPT/rlinf"
 [ -x "$VENV/bin/python" ] || die "Run RLINF_MODEL=openvla-oft scripts/17_install_rlinf.sh first"
 HF="$VENV/bin/hf"; mkdir -p "$M"

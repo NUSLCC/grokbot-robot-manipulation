@@ -24,6 +24,17 @@ if [ "${SKIP_FLASH_ATTN:-0}" != 1 ]; then
   if "$PY" -c "import flash_attn" 2>/dev/null; then ok "flash-attn already installed"
   else
     if [ -z "${CUDA_HOME:-}" ]; then
+      # Prefer nvcc on PATH if it is CUDA 12.x
+      if have nvcc; then
+        NVV="$(nvcc --version | grep -oE 'release [0-9.]+' | awk '{print $2}' || true)"
+        case "$NVV" in
+          12.*)
+            NVCC_REAL="$(readlink -f "$(command -v nvcc)")"
+            CAND="$(cd "$(dirname "$NVCC_REAL")/.." && pwd)"
+            [ -x "$CAND/bin/nvcc" ] && export CUDA_HOME="$CAND"
+          ;;
+        esac
+      fi
       for c in /usr/local/cuda-12.1 /usr/local/cuda-12.4 /usr/local/cuda-12.8 /usr/local/cuda-12; do [ -x "$c/bin/nvcc" ] && export CUDA_HOME="$c" && break; done
     fi
     log "Installing flash-attn==$OFT_FLASH_ATTN (CUDA_HOME=${CUDA_HOME:-unset})"

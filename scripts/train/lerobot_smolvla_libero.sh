@@ -2,7 +2,7 @@
 # Fine-tune SmolVLA (450M) from lerobot/smolvla_base on lerobot/libero (1.9 GB video dataset), then eval.
 # LeRobot docs use batch 64 (multi-GPU class); HW guide: small VLA ~10-16 GB at batch 8 -> default 8 here.
 set -euo pipefail
-source "$(dirname "$0")/../lib/common.sh"; clean_python_env
+source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 : "${STEPS:=20000}"; : "${BATCH:=8}"; : "${SAVE_FREQ:=5000}"
 ENV="$RSP_ENVS/lerobot"; [ -x "$ENV/bin/lerobot-train" ] || die "Run scripts/10_install_lerobot.sh first"
 OUT="$RSP_CKPT/smolvla_libero_$(stamp)"

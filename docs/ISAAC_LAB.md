@@ -55,7 +55,7 @@ Always confirm on your machine with `bash scripts/lib/isaaclab_run.sh cli list_e
 
 ## Workflows relevant to the review
 
-### A. RL on manipulation tasks (fits on a 4090)
+### A. RL on manipulation tasks (fits on a 24 GB 3090-class GPU)
 `TASK=Isaac-Lift-Franka NUM_ENVS=1024 bash scripts/train/isaaclab_rl_franka.sh` trains with rsl_rl and then plays the policy.
 Other options: `RL_LIB=skrl|sb3|rl_games` (only if that extra is installed in your env), `PHYSICS=isaacsim_physx`, `VIDEO=1`.
 Upstream equivalents: `uv run isaaclab train --rl_library rsl_rl --task … [physics=…]` and `isaaclab play …`.

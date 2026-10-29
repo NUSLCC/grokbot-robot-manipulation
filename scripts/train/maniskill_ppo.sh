@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ManiSkill3 PPO baselines (GPU-parallel). MODE=state (PushCube, minutes) or MODE=rgb (PickCube; README: settings < 15 GB).
 set -euo pipefail
-source "$(dirname "$0")/../lib/common.sh"; clean_python_env
+source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 : "${MODE:=state}"
 PY="$RSP_ENVS/maniskill/bin/python"; B="$RSP_SRC/ManiSkill/examples/baselines/ppo"
 [ -x "$PY" ] || die "Run scripts/14_install_maniskill.sh first"

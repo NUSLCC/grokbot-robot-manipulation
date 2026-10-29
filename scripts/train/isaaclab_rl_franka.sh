@@ -6,7 +6,7 @@
 #   RL_LIB: rsl_rl (default, installed by Isaac Lab) | skrl | sb3 | rl_games (only if that extra is installed)
 # Runs headless (no --viz). Add VIDEO=1 for --video recordings during play (needs the 'video' extra).
 set -euo pipefail
-source "$(dirname "$0")/../lib/common.sh"
+source "$(dirname "$0")/../lib/common.sh"; apply_gpu_selection
 : "${TASK:=Isaac-Lift-Franka}"; : "${NUM_ENVS:=1024}"; : "${MAX_ITERS:=1500}"; : "${RL_LIB:=rsl_rl}"
 : "${PHYSICS:=}"; : "${SEED:=42}"; : "${PLAY:=1}"; : "${VIDEO:=0}"
 RUN="$(dirname "$0")/../lib/isaaclab_run.sh"

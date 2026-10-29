@@ -28,26 +28,34 @@ elif [ "$RAM_GB" -ge 32 ]; then w "RAM ${RAM_GB} GB: meets Isaac Sim minimum (32
 else f "RAM ${RAM_GB} GB < 32 GB (Isaac Sim minimum)"; fi
 SWAP_GB=$(awk '/SwapTotal/{printf "%d", $2/1024/1024}' /proc/meminfo); echo "  swap ${SWAP_GB} GB"
 DISK_FREE_GB=$(df -BG --output=avail "$RSP_HOME" | tail -n1 | tr -dc 0-9)
-# Planning estimate, NOT an official figure: all envs + LIBERO/RoboTwin data + several 3B-7B checkpoints.
+# Planning estimates (not official): Phase 1 (~120–180 GB), Phase 2 (+80–120 GB), Phase 3 (+80–150 GB)
 if [ "$DISK_FREE_GB" -ge 300 ]; then ok "Free disk at $RSP_HOME: ${DISK_FREE_GB} GB"
-elif [ "$DISK_FREE_GB" -ge 150 ]; then w "Free disk ${DISK_FREE_GB} GB: enough for phase 1, tight for everything (our estimate ~300 GB)"
-else f "Free disk ${DISK_FREE_GB} GB at $RSP_HOME (our planning estimate: >=150 GB for phase 1)"; fi
+elif [ "$DISK_FREE_GB" -ge 250 ]; then ok "Free disk ${DISK_FREE_GB} GB (Phase 1 + most of Phase 2 fit; monitor usage)"
+elif [ "$DISK_FREE_GB" -ge 150 ]; then w "Free disk ${DISK_FREE_GB} GB: enough for Phase 1 only (est. 120–180 GB); consider moving RSP_HOME"
+else f "Free disk ${DISK_FREE_GB} GB at $RSP_HOME (needs >=150 GB for Phase 1)"; fi
+echo "  Estimated additional disk by phase: P1 120–180 GB, P2 +80–120 GB, P3 +80–150 GB"
 echo "  /dev/shm: $(df -h --output=size /dev/shm | tail -n1 | tr -d ' ') (PyTorch dataloaders / Docker use shared memory)"
 
 echo; log "== NVIDIA driver / GPU =="
 if have nvidia-smi && nvidia-smi >/dev/null 2>&1; then
   DRV="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n1 | tr -d ' ')"
-  GPU="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n1)"
-  VRAM="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n1 | tr -d ' ')"
-  CC="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n1 | tr -d ' ' || echo '?')"
   DRV_CUDA="$(nvidia-smi 2>/dev/null | grep -oE 'CUDA Version: [0-9.]+' | awk '{print $3}' || echo '?')"
-  echo "  GPU: $GPU  VRAM: ${VRAM} MiB  compute capability: $CC"
-  echo "  Driver: $DRV  (max CUDA runtime supported by driver: $DRV_CUDA)"
+  # Summarize all GPUs
+  GPU_LINES="$(nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader | sed 's/, /,/g')"
+  GPU_COUNT="$(printf '%s\n' "$GPU_LINES" | grep -c . || echo 0)"
+  echo "  GPUs: $GPU_COUNT device(s) detected"
+  i=0
+  while IFS=, read -r NAME VRAMMiB CAP; do
+    i=$((i+1)); printf '    [%d] %s  VRAM: %s  compute: %s\n' "$i" "$NAME" "$VRAMMiB" "$CAP"
+  done <<<"$GPU_LINES"
+  echo "  Driver: $DRV  (reports CUDA runtime: $DRV_CUDA)"
   ver_ge "$DRV" "$DRIVER_TESTED_ISAAC" && ok "Driver >= $DRIVER_TESTED_ISAAC (Isaac Sim 6.2 / Isaac Lab 3.0 tested driver; also covers cu130 PyTorch)" \
     || { ver_ge "$DRV" "$DRIVER_MIN_CU130" && w "Driver $DRV < $DRIVER_TESTED_ISAAC (Isaac tested version) but >= cu130 floor" \
          || f "Driver $DRV below cu130 floor $DRIVER_MIN_CU130 (Isaac Lab 3.0 torch 2.11 cu130 needs it)"; }
   ver_ge "$DRV" "$DRIVER_MIN_CU128" || f "Driver below $DRIVER_MIN_CU128 needed by LeRobot/GR00T cu128 wheels"
-  [ "${VRAM:-0}" -ge 23000 ] && ok "VRAM ${VRAM} MiB (24 GB class)" || w "VRAM ${VRAM} MiB < 24 GB; the VRAM-fit table assumes 24 GB"
+  # Accept 24 GB class (e.g., RTX 3090/4090)
+  FIRST_VRAM="$(printf '%s\n' "$GPU_LINES" | head -n1 | awk -F, '{gsub(/ MiB/,"",$2);print $2+0}')"
+  [ "${FIRST_VRAM:-0}" -ge 23000 ] && ok "Per-GPU VRAM ${FIRST_VRAM} MiB (24 GB class)" || w "Per-GPU VRAM ${FIRST_VRAM} MiB < 24 GB; the VRAM-fit table assumes 24 GB"
   nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null | sed 's/^/  running: /' || true
   PERS="$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader | head -n1)"; echo "  persistence mode: $PERS"
 else
