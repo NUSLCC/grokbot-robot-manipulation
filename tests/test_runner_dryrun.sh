@@ -8,6 +8,11 @@ export RSP_HOME="$TMP/rsp" RUNS_DIR="$TMP/runs" RSP_DRY_RUN=1 RSP_DRY_RUN_TMP="$
 export PATH="$T/fake-bin:$PATH" FAKE_GPU_USED=4321
 mkdir -p "$TMP/eval_smolvla_libero_x"; echo '{"overall":{"pc_success":85.0}}' > "$TMP/eval_smolvla_libero_x/eval_info.json"
 nfail=0
+# Guard: the dry run replays tests/fixtures/<step>.log; a missing fixture silently turns every metric into n/a.
+for f in act_aloha base_deps diffusion_pusht isaac_physx_smoke isaac_rl_franka isaac_validate lerobot_install \
+         maniskill_install maniskill_ppo openpi_install openpi_pi05_libero_eval smolvla_libero_eval system_check; do
+  if [ ! -s "$T/fixtures/$f.log" ]; then echo "FAIL - fixture missing: tests/fixtures/$f.log (is it git-ignored?)"; nfail=$((nfail+1)); fi
+done
 check() { if [ "$2" = "$3" ]; then echo "ok   - $1"; else echo "FAIL - $1: expected '$3', got '$2'"; nfail=$((nfail+1)); fi; }
 
 RSP_DRY_RUN_RC="act_aloha=1 diffusion_pusht=137 openpi_install=2 maniskill_ppo=77" bash "$K/scripts/run_wsl_headless.sh" > "$TMP/out.txt" 2>&1

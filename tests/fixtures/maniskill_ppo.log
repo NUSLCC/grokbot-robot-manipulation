@@ -1,0 +1,11 @@
+MANISKILL_PROBE gpu FAIL RuntimeError: vk::PhysicalDevice::createDeviceUnique: ErrorExtensionNotPresent
+MANISKILL_PROBE none OK sim=physx_cuda
+[rsp] ManiSkill rendering disabled (render_backend='none'); state observations only
+Epoch: 21, global_step=819200
+Evaluating
+eval_success_once_mean=tensor(0.6250)
+eval_return_mean=tensor(25.3125)
+Epoch: 25, global_step=983040
+Evaluating
+eval_success_once_mean=tensor(0.8750)
+eval_return_mean=tensor(31.0625)
