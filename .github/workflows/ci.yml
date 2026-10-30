@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-smoke:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Bash syntax check
+        run: |
+          find scripts -type f -name '*.sh' -print0 | xargs -0 -I{} bash -n {}
+
+      - name: Shellcheck
+        run: |
+          shellcheck -S warning $(find scripts -type f -name '*.sh' -print)
+
+      - name: Install base deps (uv + Miniforge)
+        run: |
+          bash scripts/01_base_deps.sh
+
+      - name: LeRobot CPU-only install smoke
+        env:
+          # Install CUDA wheels; import will run on CPU (torch.cuda.is_available() false)
+          MUJOCO_GL: osmesa
+        run: |
+          bash scripts/10_install_lerobot.sh
+
+      - name: ManiSkill3 CPU-only install smoke
+        run: |
+          bash scripts/14_install_maniskill.sh
