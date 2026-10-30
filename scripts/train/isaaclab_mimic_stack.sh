@@ -8,6 +8,9 @@
 set -euo pipefail
 source "$(dirname "$0")/../lib/common.sh"
 source "$(dirname "$0")/../lib/isaaclab_env.sh"
+isaac_skip_if_requested; isaaclab_wsl_note
+# Headless: ISAACLAB_HEADLESS_FLAGS (default "--viz none --livestream 0") go to annotate/generate/play
+# (they use Isaac Lab launcher args). robomimic/train.py is plain PyTorch and takes no launcher flags.
 : "${STAGE:=all}"; : "${N_GEN:=1000}"; : "${GEN_ENVS:=100}"; : "${EPOCHS:=1000}"
 RUN="$(dirname "$0")/../lib/isaaclab_run.sh"
 isaaclab_detect; [ "$ISAACLAB_MODE" != none ] || die "Isaac Lab not detected (set ISAACLAB_PATH)"
@@ -27,14 +30,14 @@ if [ ! -s "$D/dataset.hdf5" ]; then log "Downloading human demo dataset"; wget -
 s() { [ "$STAGE" = all ] || [ "$STAGE" = "$1" ]; }
 if s annotate; then
   "$RUN" python scripts/imitation_learning/isaaclab_mimic/annotate_demos.py --task Isaac-Stack-Cube-Franka-IK-Rel-Mimic-v0 \
-    --auto --input_file "$D/dataset.hdf5" --output_file "$D/annotated_dataset.hdf5"
+    --auto --input_file "$D/dataset.hdf5" --output_file "$D/annotated_dataset.hdf5" $ISAACLAB_HEADLESS_FLAGS
 fi
 if s generate; then
   gpu_monitor_start "$D/gpu_generate.csv"
   "$RUN" python scripts/imitation_learning/isaaclab_mimic/generate_dataset.py --num_envs 20 --generation_num_trials 10 \
-    --input_file "$D/annotated_dataset.hdf5" --output_file "$D/generated_dataset_small.hdf5"
+    --input_file "$D/annotated_dataset.hdf5" --output_file "$D/generated_dataset_small.hdf5" $ISAACLAB_HEADLESS_FLAGS
   "$RUN" python scripts/imitation_learning/isaaclab_mimic/generate_dataset.py --num_envs "$GEN_ENVS" --generation_num_trials "$N_GEN" \
-    --input_file "$D/annotated_dataset.hdf5" --output_file "$D/generated_dataset.hdf5"
+    --input_file "$D/annotated_dataset.hdf5" --output_file "$D/generated_dataset.hdf5" $ISAACLAB_HEADLESS_FLAGS
   echo "Peak GPU memory (generate): $(gpu_monitor_stop) MiB"
 fi
 if s train; then
@@ -46,6 +49,6 @@ if s play; then
   CK="${CHECKPOINT:-$(ls -t "$ISAACLAB_PATH"/logs/robomimic/*/*/models/*.pth 2>/dev/null | head -n1 || true)}"
   [ -n "$CK" ] || die "No robomimic checkpoint found; set CHECKPOINT=/path/model.pth"
   "$RUN" python scripts/imitation_learning/robomimic/play.py --task IsaacContrib-Stack-Cube-Franka-IK-Rel \
-    --num_rollouts 50 --checkpoint "$CK"
+    --num_rollouts "${N_ROLLOUTS:-50}" --checkpoint "$CK" $ISAACLAB_HEADLESS_FLAGS
 fi
 ok "Mimic pipeline stage '$STAGE' done. Data in $D"

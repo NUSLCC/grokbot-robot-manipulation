@@ -6,6 +6,8 @@
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 clean_python_env; ensure_conda
+is_blackwell && warn "Blackwell GPU: RoboTwin's stack (CUDA 12.1 recommended, CuRobo/pytorch3d builds) is NOT expected to work on sm_120 without manual torch/CUDA upgrades."
+is_wsl && warn "WSL2: RoboTwin renders with SAPIEN/Vulkan, which WSL2 does not provide for NVIDIA GPUs today."
 
 PREFIX="$RSP_ENVS/conda/robotwin"; SRC="$RSP_SRC/RoboTwin"
 conda_env_create "$PREFIX" "$ROBOTWIN_PY"

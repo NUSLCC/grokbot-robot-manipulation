@@ -9,6 +9,7 @@ clean_python_env; ensure_conda
 
 PREFIX="$RSP_ENVS/conda/simplevla"; W="$RSP_SRC/simplevla_ws"; mkdir -p "$W"
 conda_env_create "$PREFIX" 3.10; PY="$PREFIX/bin/python"
+warn_torch_arch "SimpleVLA-RL" "$SIMPLEVLA_TORCH"
 "$PY" -m pip install "torch==$SIMPLEVLA_TORCH" --index-url https://download.pytorch.org/whl/cu124
 git_sync https://github.com/volcengine/verl.git "$W/verl" "$VERL_BRANCH"
 "$PY" -m pip install -e "$W/verl"

@@ -3,6 +3,8 @@
 # Env: conda prefix $RSP_HOME/envs/conda/simplerenv (Python 3.10, numpy==1.24.4 per README). Minimal install only:
 # the RT-1/Octo "full installation" (tensorflow) is NOT done here. For VLA evals on SimplerEnv prefer the policy
 # repo's own client (e.g. GR00T: GROOT_SIMS=SimplerEnv bash scripts/13_install_groot.sh).
+# SimplerEnv installs no torch itself (policies bring their own). It renders with SAPIEN/Vulkan, NOT MuJoCo, so on
+# WSL2 (no NVIDIA Vulkan ICD) its image-based evals are not expected to run; the import check still works.
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 clean_python_env; ensure_conda
@@ -20,3 +22,6 @@ import simpler_env
 print("SimplerEnv import ok; skipping env.make() on CPU-only host")
 PY
 ok "SimplerEnv env: $PREFIX"
+if is_wsl && [ "$(vulkan_status)" != nvidia ]; then
+  warn "WSL2 without an NVIDIA Vulkan device ($(vulkan_status)): SimplerEnv evaluations (SAPIEN rendering) are expected to fail here."
+fi

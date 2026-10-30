@@ -39,3 +39,60 @@ jobs:
       - name: ManiSkill3 CPU-only install smoke
         run: |
           bash scripts/14_install_maniskill.sh
+
+  wsl2-ubuntu2404-headless:
+    # Ubuntu 24.04 runner standing in for WSL2 Ubuntu 24.04 (no GPU): checks syntax, lint, WSL/profile detection,
+    # the system check in simulated-WSL dry-run mode, the headless runner's control flow, and 24.04 apt names.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Bash syntax check (scripts + tests)
+        run: |
+          find scripts tests -type f \( -name '*.sh' -o -path 'tests/fake-bin/*' \) -print0 | xargs -0 -n1 bash -n
+
+      - name: Shellcheck (scripts + tests)
+        run: |
+          shellcheck -S warning $(find scripts tests -type f -name '*.sh' -print) tests/fake-bin/nvidia-smi
+
+      - name: Python helpers compile
+        run: python3 -m py_compile scripts/lib/maniskill_probe.py scripts/lib/maniskill_ppo_norender.py
+
+      - name: WSL / OS / GPU-profile detection tests
+        run: bash tests/test_wsl_detect.sh
+
+      - name: System check, simulated WSL2 + RTX 5090 Laptop (dry run)
+        env:
+          RSP_FORCE_WSL: "1"
+          RSP_DRY_RUN: "1"
+          WSL_DISTRO_NAME: Ubuntu-24.04
+        run: PATH="$PWD/tests/fake-bin:$PATH" bash scripts/00_check_system.sh
+
+      - name: System check, native 2x RTX 3090 profile (dry run)
+        env:
+          RSP_FORCE_WSL: "0"
+          RSP_DRY_RUN: "1"
+          FAKE_GPU_NAME: NVIDIA GeForce RTX 3090
+          FAKE_GPU_CC: "8.6"
+          FAKE_GPU_COUNT: "2"
+          FAKE_GPU_MEM: "24576"
+          FAKE_DRIVER: "595.99.02"
+        run: PATH="$PWD/tests/fake-bin:$PATH" bash scripts/00_check_system.sh
+
+      - name: Headless runner control flow (dry run, simulated failures/skips)
+        run: bash tests/test_runner_dryrun.sh
+
+      - name: Base deps on Ubuntu 24.04 (apt names, uv, Miniforge) in simulated WSL mode
+        env:
+          RSP_FORCE_WSL: "1"
+        run: |
+          bash scripts/01_base_deps.sh
+          ldconfig -p | grep -q libOSMesa.so && echo "OSMesa installed"
+          for v in 3.8 3.10 3.11 3.12; do ~/.local/bin/uv venv -q --python "$v" "/tmp/venv$v" && "/tmp/venv$v/bin/python" -V; done

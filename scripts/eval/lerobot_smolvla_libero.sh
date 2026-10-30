@@ -6,6 +6,7 @@ set -euo pipefail
 source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 : "${POLICY:=lerobot/smolvla_libero}"; : "${SUITES:=libero_object}"; : "${N_EPISODES:=2}"; : "${BATCH:=1}"
 ENV="$RSP_ENVS/lerobot"; [ -x "$ENV/bin/lerobot-eval" ] || die "Run scripts/10_install_lerobot.sh first"
+select_mujoco_gl "$ENV/bin/python"   # EGL, or OSMesa fallback on WSL2
 OUT="$RSP_LOGS/eval_smolvla_libero_$(stamp)"
 # The checkpoint's config.json expects observation.images.camera1/camera2 while the LIBERO env emits
 # observation.images.image/image2 -> rename map (mapping inferred from config.json; verify on first run).

@@ -1,4 +1,18 @@
-# Robot Manipulation Simulation Platform (RTX 3090 / Ubuntu 22.04 / Isaac Lab 3.0)
+# Robot Manipulation Simulation Platform (RTX 3090 / 4090 / 5090 Laptop, Ubuntu 22.04 / WSL2 24.04, Isaac Lab 3.0)
+
+## Your machines
+
+One codebase for all three. The hardware profile is auto-selected from the GPU name (`PROFILE=...` to override),
+and WSL2 is auto-detected. Details: [docs/WSL2.md](docs/WSL2.md).
+
+| Machine | Profile | OS / driver | GPU | Notes |
+|---|---|---|---|---|
+| lcc-TRX40 | `dual3090` | native Ubuntu 22.04, driver 595 | 2x RTX 3090 24 GB (sm_86) | Isaac Sim 6.2.0 + Isaac Lab 3.0.0 installed |
+| second workstation | `rtx4090` | native Ubuntu 22.04, driver 595 | RTX 4090 24 GB (sm_89), 64 GB RAM | same path as the 3090 box |
+| Windows laptop | `rtx5090_laptop_wsl` | WSL2 Ubuntu 24.04, Windows driver 596.36 | RTX 5090 Laptop GPU 24 GB (Blackwell sm_120) | cu128 torch everywhere; MuJoCo falls back to OSMesa, SAPIEN to no-render; Isaac on WSL2 is not officially supported by NVIDIA |
+
+**Headless, results only (any machine, made for WSL2):** `QUICK=1 bash scripts/run_wsl_headless.sh`, then open
+`runs/<timestamp>/SUMMARY.md`. See [docs/WSL2.md](docs/WSL2.md) for the Windows 11 setup and what works, falls back or is skipped.
 
 ## Quick start
 
@@ -198,6 +212,10 @@ DSRL for π0 (a small SAC agent in the diffusion noise space; RLinf docs). RL on
 upstream on 8× 80 GB GPUs.
 
 ## 6. Headless rendering
+
+On WSL2 (and whenever NVIDIA EGL or Vulkan is missing), MuJoCo evals probe EGL and fall back to `MUJOCO_GL=osmesa`.
+ManiSkill PPO falls back to no-render state mode, and Isaac Lab runs with `--viz none --livestream 0` (Isaac Lab 3.0 rejects
+`--headless`). See [docs/WSL2.md](docs/WSL2.md).
 
 | Simulator | Backend | Setting |
 |---|---|---|

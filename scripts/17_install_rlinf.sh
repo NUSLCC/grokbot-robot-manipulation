@@ -7,6 +7,7 @@
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 clean_python_env
+is_blackwell && warn "Blackwell GPU: RLinf's torch/CUDA per model is chosen by its own installer; sm_120 support is unverified."
 : "${RLINF_MODEL:=openvla-oft}"; : "${RLINF_ENV:=maniskill_libero}"
 
 if [ "${RLINF_USE_DOCKER:-0}" = 1 ]; then

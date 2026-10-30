@@ -8,6 +8,7 @@ source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 SRC="$RSP_SRC/Isaac-GR00T"; [ -d "$SRC/.venv" ] || die "Run scripts/13_install_groot.sh first"
 CLIENT_PY="$SRC/gr00t/eval/sim/LIBERO/libero_uv/.venv/bin/python"
 [ -x "$CLIENT_PY" ] || die "LIBERO client venv missing; run GROOT_SIMS=LIBERO scripts/13_install_groot.sh"
+select_mujoco_gl "$CLIENT_PY"   # EGL, or OSMesa fallback on WSL2
 OUT="$RSP_LOGS/eval_groot_libero_$(stamp)"; mkdir -p "$OUT"; cd "$SRC"
 CK="checkpoints/GR00T-N1.7-LIBERO/$GROOT_SUITE"
 if [ ! -f "$CK/config.json" ]; then
