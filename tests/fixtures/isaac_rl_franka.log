@@ -1,0 +1,9 @@
+################################################################################
+                       Learning iteration 29/30
+                       Computation: 51234 steps/s (collection: 0.512s, learning 0.101s)
+                       Mean reward: 0.42
+               Mean episode length: 360.00
+################################################################################
+                       Learning iteration 30/30
+                       Mean reward: 0.57
+Peak GPU memory (train): 6021 MiB

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Fake nvidia-smi for CI / dry runs on machines without a GPU. NOT used on real machines.
+#   FAKE_GPU_NAME   (default "NVIDIA GeForce RTX 5090 Laptop GPU")
+#   FAKE_GPU_MEM    total MiB (default 24463)   FAKE_GPU_CC (default 12.0)   FAKE_GPU_COUNT (default 1)
+#   FAKE_DRIVER     (default 596.36)            FAKE_GPU_USED  used MiB reported by the sampler (default 1234)
+name="${FAKE_GPU_NAME:-NVIDIA GeForce RTX 5090 Laptop GPU}"; mem="${FAKE_GPU_MEM:-24463}"; cc="${FAKE_GPU_CC:-12.0}"
+n="${FAKE_GPU_COUNT:-1}"; drv="${FAKE_DRIVER:-596.36}"; used="${FAKE_GPU_USED:-1234}"
+q=""; units=1; loop=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --query-gpu=*) q="${1#--query-gpu=}" ;;
+    --query-compute-apps=*) exit 0 ;;
+    --format=*) case "$1" in *nounits*) units=0 ;; esac ;;
+    -l) loop="$2"; shift ;;
+  esac
+  shift
+done
+field() {
+  case "$1" in
+    name) echo "$name" ;;
+    memory.total) [ "$units" = 1 ] && echo "$mem MiB" || echo "$mem" ;;
+    memory.used) [ "$units" = 1 ] && echo "$used MiB" || echo "$used" ;;
+    utilization.gpu) [ "$units" = 1 ] && echo "37 %" || echo 37 ;;
+    compute_cap) echo "$cc" ;;
+    driver_version) echo "$drv" ;;
+    persistence_mode) echo "Disabled" ;;
+    *) echo "[N/A]" ;;
+  esac
+}
+emit() { local i f out; for ((i=0;i<n;i++)); do out=""; IFS=, read -ra fs <<<"$q"; for f in "${fs[@]}"; do out="${out:+$out, }$(field "$f")"; done; echo "$out"; done; }
+if [ -n "$q" ]; then
+  if [ -n "$loop" ]; then while true; do emit; sleep "$loop"; done; else emit; fi
+  exit 0
+fi
+cat <<TXT
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.00                 Driver Version: $drv         CUDA Version: 13.2     |
+|   0  $name     On  |                                                       |
++-----------------------------------------------------------------------------------------+
+TXT

@@ -4,6 +4,7 @@
 # Each sim benchmark has its own setup script that builds a separate client venv (official design).
 # GR00T's backbone nvidia/Cosmos-Reason2-2B is GATED: request access, then `uv run hf auth login`.
 #   GROOT_SIMS="LIBERO SimplerEnv"   which sim clients to set up (names of gr00t/eval/sim/<X>/setup_*.sh)
+# Blackwell: GR00T's own CUDA 12.8 wheels include sm_120 (per its README dGPU stack); not tested by this kit.
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 clean_python_env; ensure_uv

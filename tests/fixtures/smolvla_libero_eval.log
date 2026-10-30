@@ -1,0 +1,2 @@
+{'avg_sum_reward': 0.8, 'avg_max_reward': 0.8, 'pc_success': 80.0, 'n_episodes': 10}
+[ OK ] Results in @RUNTMP@/eval_smolvla_libero_x (see eval_info.json)

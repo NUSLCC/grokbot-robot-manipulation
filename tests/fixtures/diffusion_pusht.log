@@ -1,0 +1,2 @@
+INFO 2026-10-30 10:01:00 ot_train.py:400 step:2K smpl:64K ep:300 epch:2.50 loss:0.081 grdn:0.9 lr:1.0e-04
+INFO 2026-10-30 10:03:00 ot_train.py:420 step:2K smpl:64K ep:300 epch:2.50 ∑rwrd:30.000 success:0.0 eval_s:60.000

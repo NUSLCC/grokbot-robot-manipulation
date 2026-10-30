@@ -1,0 +1,2 @@
+lerobot 0.6.1 | torch 2.11.0+cu128 cuda 12.8 | gpu ok: True | MUJOCO_GL osmesa
+[ OK ] LeRobot env ready: source /home/u/robot-sim/envs/lerobot/bin/activate

@@ -1,0 +1,8 @@
+[rsp 10:00:00] == Isaac Lab validation summary ==
+CHECK                              RESULT DETAIL
+Isaac Lab VERSION                  PASS  3.0.0
+Python                             PASS  3.12.9 (Isaac Lab 3.0 requires 3.12)
+PyTorch                            PASS  2.11.0+cu130 cuda=13.0
+CUDA from Isaac env                PASS  NVIDIA GeForce RTX 5090 Laptop GPU, 23.9 GiB, matmul_ok=True
+list_envs                          PASS  41 manipulation task IDs
+smoke Isaac-Reach-Franka [default] PASS  95s, peak GPU mem 5120 MiB (whole GPU)

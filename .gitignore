@@ -17,6 +17,9 @@ env/
 # Node (some upstream tools may bring web UIs)
 node_modules/
 *.log
+# test fixtures are real upstream log samples used by tests/test_runner_dryrun.sh
+!tests/fixtures/
+!tests/fixtures/*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -31,6 +34,7 @@ pnpm-debug.log*
 .vscode/
 
 # Project outputs
+runs/
 logs/
 checkpoints/
 outputs/

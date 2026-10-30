@@ -5,6 +5,105 @@ set -euo pipefail
 
 _RSP_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RSP_KIT_DIR="$(cd "${_RSP_LIB_DIR}/../.." && pwd)"
+
+_c() { if [ -t 1 ]; then printf '\033[%sm' "$1"; fi; }
+log()  { echo "$(_c 36)[rsp $(date +%H:%M:%S)]$(_c 0) $*"; }
+ok()   { echo "$(_c 32)[ OK ]$(_c 0) $*"; }
+warn() { echo "$(_c 33)[WARN]$(_c 0) $*" >&2; }
+fail() { echo "$(_c 31)[FAIL]$(_c 0) $*" >&2; }
+die()  { fail "$*"; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+# Exit code a script uses to say "skipped on purpose" (run_wsl_headless.sh reports it as SKIP).
+RSP_EXIT_SKIP=77
+skip_exit() { warn "SKIP: $*"; exit "$RSP_EXIT_SKIP"; }
+
+# ver_ge A B  -> true if version A >= B
+ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | sed -n 1p)" = "$2" ]; }
+
+# ---------------------------------------------------------------------------------------------
+# Platform detection (WSL2, Ubuntu release). Test overrides:
+#   RSP_FORCE_WSL=1|0           force WSL on/off (CI and dry runs)
+#   RSP_PROC_VERSION_FILE=path  read this instead of /proc/version
+#   RSP_OS_RELEASE_FILE=path    read this instead of /etc/os-release
+# ---------------------------------------------------------------------------------------------
+is_wsl() {
+  case "${RSP_FORCE_WSL:-}" in 1|true|yes) return 0 ;; 0|false|no) return 1 ;; esac
+  [ -n "${WSL_DISTRO_NAME:-}" ] && return 0
+  grep -qi microsoft "${RSP_PROC_VERSION_FILE:-/proc/version}" 2>/dev/null
+}
+# os_field KEY -> value from os-release (e.g. os_field VERSION_ID -> 24.04)
+os_field() {
+  local f="${RSP_OS_RELEASE_FILE:-/etc/os-release}"
+  [ -r "$f" ] || { echo ""; return 0; }
+  sed -n "s/^$1=//p" "$f" | sed -n 1p | tr -d '"'
+}
+os_version_id() { os_field VERSION_ID; }
+
+# ---------------------------------------------------------------------------------------------
+# GPU detection + hardware profile (scripts/lib/profiles/*.env). Detected once, then exported.
+#   PROFILE=dual3090|rtx4090|rtx5090_laptop_wsl|generic   override auto-selection
+#   (a desktop RTX 5090 or any other GPU gets 'generic'; Blackwell is still detected from compute capability)
+# ---------------------------------------------------------------------------------------------
+detect_gpus() {
+  [ "${RSP_GPU_DETECTED:-0}" = 1 ] && return 0
+  RSP_GPU_COUNT=0; RSP_GPU_NAME=""; RSP_GPU_CC=""; RSP_GPU_VRAM_MIB=0
+  if have nvidia-smi; then
+    local lines
+    lines="$(timeout 30 nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader,nounits 2>/dev/null || true)"
+    lines="$(printf '%s\n' "$lines" | grep -E '^[^,]+,[^,]+,' || true)"
+    if [ -n "$lines" ]; then
+      RSP_GPU_COUNT="$(printf '%s\n' "$lines" | grep -c .)"
+      RSP_GPU_NAME="$(printf '%s\n' "$lines" | sed -n 1p | cut -d, -f1 | sed 's/^ *//;s/ *$//')"
+      RSP_GPU_VRAM_MIB="$(printf '%s\n' "$lines" | awk -F, '{gsub(/[^0-9]/,"",$2); v=$2+0; if(NR==1||v<m)m=v}END{print m+0}')"
+      RSP_GPU_CC="$(printf '%s\n' "$lines" | awk -F, '{gsub(/ /,"",$3); if($3 ~ /^[0-9]+\.[0-9]+$/) print $3}' | sort -V | tail -n1)"
+    fi
+  fi
+  RSP_GPU_DETECTED=1
+  export RSP_GPU_DETECTED RSP_GPU_COUNT RSP_GPU_NAME RSP_GPU_CC RSP_GPU_VRAM_MIB
+}
+# Major compute capability of the newest GPU (0 if unknown). 8=Ampere(3090: 8.6) / Ada(4090: 8.9), 12=Blackwell(5090 Laptop: 12.0)
+gpu_cc_major() { detect_gpus; local m="${RSP_GPU_CC%%.*}"; case "$m" in ''|*[!0-9]*) echo 0 ;; *) echo "$m" ;; esac; }
+# Blackwell (sm_100/sm_120) needs PyTorch built for CUDA >= 12.8 (torch >= 2.7, cu128 wheels).
+is_blackwell() {
+  [ "${RSP_GPU_ARCH:-}" = blackwell ] && return 0
+  [ "$(gpu_cc_major)" -ge 10 ]
+}
+
+rsp_select_profile() {
+  if [ -z "${PROFILE:-}" ]; then
+    detect_gpus
+    case "$RSP_GPU_NAME" in
+      *5090*Laptop*|*5090*laptop*) PROFILE=rtx5090_laptop_wsl ;;
+      *4090*) PROFILE=rtx4090 ;;
+      *3090*) PROFILE=dual3090 ;;
+      *)      PROFILE=generic ;;
+    esac
+    RSP_PROFILE_AUTO=1
+  fi
+  export PROFILE RSP_PROFILE_AUTO="${RSP_PROFILE_AUTO:-0}"
+  if [ "$PROFILE" != generic ]; then
+    local f="$_RSP_LIB_DIR/profiles/$PROFILE.env"
+    if [ ! -f "$f" ]; then
+      die "Unknown PROFILE=$PROFILE. Available: generic $(cd "$_RSP_LIB_DIR/profiles" && ls ./*.env | sed 's|^./||;s|\.env$||' | tr '\n' ' ')"
+    fi
+    # shellcheck disable=SC1090
+    source "$f"
+  fi
+  # Generic fallbacks (any value already exported by you or the profile wins)
+  if [ -z "${RSP_GPU_ARCH:-}" ]; then
+    case "$(gpu_cc_major)" in 0) RSP_GPU_ARCH=unknown ;; 7) RSP_GPU_ARCH=turing_or_older ;; 8) RSP_GPU_ARCH=ampere_or_ada ;; 9) RSP_GPU_ARCH=hopper ;; *) RSP_GPU_ARCH=blackwell ;; esac
+  fi
+  : "${RSP_PROFILE_DESC:=generic (no profile matched GPU '${RSP_GPU_NAME:-none}')}"
+  : "${RSP_VRAM_CLASS_GB:=24}"
+  : "${RSP_EXPECT_GPUS:=1}"
+  : "${TORCH_CUDA:=cu128}"
+  : "${RSP_WSL_RENDER_FALLBACK:=1}"
+  : "${RSP_EXPECT_WSL:=}"
+  : "${RSP_PI0_LORA_NOTE:=see README VRAM table}"
+  export RSP_GPU_ARCH RSP_PROFILE_DESC RSP_VRAM_CLASS_GB RSP_EXPECT_GPUS TORCH_CUDA RSP_WSL_RENDER_FALLBACK RSP_EXPECT_WSL RSP_PI0_LORA_NOTE
+}
+rsp_select_profile
+
 # shellcheck source=versions.env
 source "${_RSP_LIB_DIR}/versions.env"
 
@@ -25,20 +124,11 @@ export MS_SKIP_ASSET_DOWNLOAD_PROMPT="${MS_SKIP_ASSET_DOWNLOAD_PROMPT:-1}"
 export WANDB_MODE="${WANDB_MODE:-offline}"
 export UV_LINK_MODE="${UV_LINK_MODE:-copy}"   # avoid hardlinked uv cache edits (openpi transformers patch warning)
 
-# Headless rendering defaults. MuJoCo (LIBERO/robosuite/ALOHA/PushT): EGL. SAPIEN (ManiSkill/SimplerEnv/RoboTwin): Vulkan.
+# Headless rendering defaults. MuJoCo (LIBERO/robosuite/ALOHA): EGL, probed per env by select_mujoco_gl
+# (falls back to OSMesa when EGL does not work, e.g. on WSL2). SAPIEN (ManiSkill/SimplerEnv/RoboTwin): Vulkan.
 export MUJOCO_GL="${MUJOCO_GL:-egl}"
 export PYOPENGL_PLATFORM="${PYOPENGL_PLATFORM:-$MUJOCO_GL}"
 
-_c() { if [ -t 1 ]; then printf '\033[%sm' "$1"; fi; }
-log()  { echo "$(_c 36)[rsp $(date +%H:%M:%S)]$(_c 0) $*"; }
-ok()   { echo "$(_c 32)[ OK ]$(_c 0) $*"; }
-warn() { echo "$(_c 33)[WARN]$(_c 0) $*" >&2; }
-fail() { echo "$(_c 31)[FAIL]$(_c 0) $*" >&2; }
-die()  { fail "$*"; exit 1; }
-have() { command -v "$1" >/dev/null 2>&1; }
-
-# ver_ge A B  -> true if version A >= B
-ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
 
 # GPU selection: set CUDA_VISIBLE_DEVICES from GPUS (e.g., "0,1") or NUM_GPUS (first N GPUs)
 apply_gpu_selection() {
@@ -185,16 +275,113 @@ wait_port() {
 
 # Background GPU memory sampler. gpu_monitor_start FILE ; gpu_monitor_stop -> prints peak MiB
 gpu_monitor_start() {
-  _RSP_GPU_LOG="$1"
+  _RSP_GPU_LOG="$1"; _RSP_GPU_PID=""
+  have nvidia-smi || return 0
   nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader,nounits -l 2 > "$_RSP_GPU_LOG" 2>/dev/null &
   _RSP_GPU_PID=$!
 }
 gpu_monitor_stop() {
-  [ -n "${_RSP_GPU_PID:-}" ] && kill "$_RSP_GPU_PID" 2>/dev/null || true
-  wait "${_RSP_GPU_PID:-}" 2>/dev/null || true
+  if [ -n "${_RSP_GPU_PID:-}" ]; then
+    kill "$_RSP_GPU_PID" 2>/dev/null || true
+    wait "$_RSP_GPU_PID" 2>/dev/null || true
+  fi
   if [ -s "${_RSP_GPU_LOG:-/nonexistent}" ]; then
     awk -F, 'BEGIN{m=0}{gsub(/ /,"",$1); if($1+0>m)m=$1+0}END{print m}' "$_RSP_GPU_LOG"
   else echo "n/a"; fi
 }
 
 stamp() { date +%Y%m%d-%H%M%S; }
+
+# ---------------------------------------------------------------------------------------------
+# Headless rendering helpers
+# ---------------------------------------------------------------------------------------------
+_set_gl_platform() { export MUJOCO_GL="$1"; export PYOPENGL_PLATFORM="$1"; }
+
+# select_mujoco_gl PYTHON
+# Probes MuJoCo EGL in the given interpreter. If EGL does not work (common on WSL2, where there is no
+# NVIDIA EGL), falls back to OSMesa (CPU rendering: works everywhere, noticeably slower).
+# Respects an explicit MUJOCO_GL=osmesa|glx|glfw. RSP_SKIP_GL_PROBE=1 keeps the current value.
+# RSP_WSL_RENDER_FALLBACK=0 disables the fallback (then an EGL failure surfaces in the step itself).
+select_mujoco_gl() {
+  local py="$1" rc=0
+  case "${MUJOCO_GL:-egl}" in
+    egl) ;;
+    *) _set_gl_platform "$MUJOCO_GL"; log "MUJOCO_GL=$MUJOCO_GL (set by you; not probing)"; return 0 ;;
+  esac
+  if [ "${RSP_SKIP_GL_PROBE:-0}" = 1 ]; then _set_gl_platform egl; return 0; fi
+  if [ ! -x "$py" ]; then warn "select_mujoco_gl: $py not found; keeping MUJOCO_GL=egl"; _set_gl_platform egl; return 0; fi
+  local out
+  out="$(MUJOCO_GL=egl PYOPENGL_PLATFORM=egl timeout 120 "$py" - 2>/dev/null <<'PY'
+import sys
+try:
+    import mujoco
+except Exception:
+    sys.exit(3)          # no mujoco in this env -> cannot probe
+ctx = mujoco.GLContext(64, 64)
+ctx.make_current()
+try:
+    from OpenGL import GL
+    print("GL_RENDERER=" + GL.glGetString(GL.GL_RENDERER).decode(errors="replace"))
+except Exception:
+    print("GL_RENDERER=unknown")
+ctx.free()
+PY
+)" || rc=$?
+  if [ "$rc" = 0 ]; then
+    _set_gl_platform egl
+    local rend; rend="$(sed -n 's/^GL_RENDERER=//p' <<<"$out" | tail -n1)"
+    ok "MuJoCo EGL rendering works (MUJOCO_GL=egl, renderer: ${rend:-unknown})"
+    case "$rend" in *llvmpipe*|*softpipe*|*swrast*) warn "EGL renderer is software ($rend): rendering runs on the CPU (slower, but works)";; esac
+    return 0
+  fi
+  if [ "$rc" = 3 ]; then _set_gl_platform egl; warn "mujoco not importable in $py; keeping MUJOCO_GL=egl"; return 0; fi
+  if [ "${RSP_WSL_RENDER_FALLBACK:-1}" = 0 ]; then
+    _set_gl_platform egl; warn "MuJoCo EGL probe failed (rc=$rc) and RSP_WSL_RENDER_FALLBACK=0: keeping egl"; return 0
+  fi
+  if ! ldconfig -p 2>/dev/null | grep -q 'libOSMesa.so'; then
+    warn "MuJoCo EGL probe failed and libOSMesa is missing: run scripts/01_base_deps.sh (installs libosmesa6). Keeping egl."
+    _set_gl_platform egl; return 0
+  fi
+  _set_gl_platform osmesa
+  warn "MuJoCo EGL not available$(is_wsl && echo ' (expected on WSL2: no NVIDIA EGL there)'). Using MUJOCO_GL=osmesa (CPU rendering; evals run several times slower)."
+}
+
+# vulkan_status -> nvidia | dzn | cpu-only | none | unknown   (what `vulkaninfo --summary` reports)
+vulkan_status() {
+  have vulkaninfo || { echo unknown; return 0; }
+  local s; s="$(timeout 60 vulkaninfo --summary 2>/dev/null || true)"
+  if [ -z "$s" ] || ! grep -q 'deviceName' <<<"$s"; then echo none
+  elif grep -qiE 'deviceName *= *.*NVIDIA' <<<"$s" && ! grep -qiE 'Microsoft|D3D12|dozen' <<<"$s"; then echo nvidia
+  elif grep -qiE 'dozen|D3D12|Microsoft Direct3D' <<<"$s"; then echo dzn
+  elif grep -qiE 'llvmpipe|lavapipe|PHYSICAL_DEVICE_TYPE_CPU' <<<"$s"; then echo cpu-only
+  else echo unknown; fi
+}
+
+# ---------------------------------------------------------------------------------------------
+# Blackwell (RTX 5090, sm_120) helpers
+# ---------------------------------------------------------------------------------------------
+# warn_torch_arch FRAMEWORK TORCH_VERSION  - loud warning when a framework pins a torch with no sm_120 kernels.
+warn_torch_arch() {
+  is_blackwell || return 0
+  if ver_ge "$2" 2.7; then
+    ok "$1 pins torch $2 -> needs the cu128 (or newer) wheel for Blackwell; using TORCH_CUDA=$TORCH_CUDA"
+  else
+    warn "============================================================================================"
+    warn "$1 pins torch $2, which has NO Blackwell (sm_120) kernels. On an RTX 5090 its GPU code is"
+    warn "expected to fail with 'no kernel image is available for execution on the device'."
+    warn "The install continues (CPU-side tools still work). See docs/WSL2.md 'Blackwell (RTX 5090)'."
+    warn "============================================================================================"
+  fi
+}
+
+# find_cuda_home MIN_VERSION  -> prints a CUDA toolkit root whose nvcc >= MIN_VERSION (prefers CUDA_HOME, nvcc on PATH)
+find_cuda_home() {
+  local min="$1" c v
+  for c in "${CUDA_HOME:-}" "$( { command -v nvcc >/dev/null 2>&1 && dirname "$(dirname "$(readlink -f "$(command -v nvcc)")")"; } || true)" \
+           /usr/local/cuda-12.9 /usr/local/cuda-12.8 /usr/local/cuda-12.6 /usr/local/cuda-12.4 /usr/local/cuda-12.1 /usr/local/cuda-12 /usr/local/cuda; do
+    [ -n "$c" ] && [ -x "$c/bin/nvcc" ] || continue
+    v="$("$c/bin/nvcc" --version 2>/dev/null | grep -oE 'release [0-9.]+' | awk '{print $2}')"
+    case "$v" in 12.*) ver_ge "$v" "$min" && { echo "$c"; return 0; } ;; esac
+  done
+  return 1
+}

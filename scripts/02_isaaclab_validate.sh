@@ -8,9 +8,12 @@
 #   SMOKE_NUM_ENVS=64  SMOKE_ITERS=3  SMOKE_TIMEOUT=1800
 #   SMOKE_PHYSICS="default isaacsim_physx"   'default' = Newton (Isaac Lab 3.0 default); isaacsim_physx exercises Isaac Sim 6.2
 #   SKIP_SMOKE=1                              only run detection + version checks
+#   SKIP_ISAAC=1                              skip everything (exit code 77 = SKIP for run_wsl_headless.sh)
+#   ISAACLAB_HEADLESS_FLAGS                   default "--viz none --livestream 0" (Isaac Lab 3.0 has no --headless)
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 source "$(dirname "$0")/lib/isaaclab_env.sh"
+isaac_skip_if_requested
 
 : "${SMOKE_TASKS:=Isaac-Reach-Franka Isaac-Lift-Franka}"   # IDs verified in release/3.0.0 source (core/reach, core/lift)
 : "${SMOKE_NUM_ENVS:=64}"
@@ -24,6 +27,7 @@ RESULTS=()
 rec() { RESULTS+=("$1|$2|$3"); }
 
 log "== Detecting Isaac Lab / Isaac Sim =="
+isaaclab_wsl_note
 isaaclab_detect
 isaaclab_summary
 [ "$ISAACLAB_MODE" != none ] || die "Isaac Lab not found. Export ISAACLAB_PATH=/path/to/IsaacLab (and ISAACLAB_CONDA_ENV or ISAAC_PY if it lives in conda/a venv)."
@@ -74,7 +78,7 @@ PY
     if [ "$SIMV" != "None" ]; then
       case "$SIMV" in 6.2.*) rec "Isaac Sim (pip wheel)" PASS "isaacsim $SIMV";; *) rec "Isaac Sim (pip wheel)" WARN "isaacsim $SIMV (expected 6.2.x)";; esac
     elif [ -n "${ISAACSIM_ROOT:-}" ]; then
-      SV="$(cat "$ISAACSIM_ROOT/VERSION" 2>/dev/null | head -n1 || echo '?')"
+      SV="$(cat "$ISAACSIM_ROOT/VERSION" 2>/dev/null | sed -n 1p || echo '?')"
       rec "Isaac Sim (binary/_isaac_sim)" PASS "$ISAACSIM_ROOT VERSION=$SV (verify it reads 6.2.x)"
     else rec "Isaac Sim" WARN "no isaacsim wheel in env and no _isaac_sim / ~/isaacsim found; Newton-only tasks still work"; fi
     [ "$(j isaaclab-mimic)" != "None" ] && rec "isaaclab_mimic" PASS "$(j isaaclab-mimic)" || rec "isaaclab_mimic" INFO "not installed (only needed for Mimic workflow)"
@@ -88,7 +92,7 @@ else
 fi
 
 log "== Driver vs Isaac requirements =="
-DRV="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 | tr -d ' ' || true)"; DRV="${DRV:-0}"
+DRV="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | sed -n 1p | tr -d ' ' || true)"; DRV="${DRV:-0}"
 ver_ge "$DRV" "$DRIVER_TESTED_ISAAC" && rec "Driver" PASS "$DRV >= $DRIVER_TESTED_ISAAC (Isaac Sim 6.2 tested)" || rec "Driver" WARN "$DRV < $DRIVER_TESTED_ISAAC"
 
 if [ "${SKIP_SMOKE:-0}" = 1 ]; then warn "SKIP_SMOKE=1"; else
@@ -110,7 +114,7 @@ if [ "${SKIP_SMOKE:-0}" = 1 ]; then warn "SKIP_SMOKE=1"; else
       gpu_monitor_start "$OUT/gpu_$tag.csv"
       t0=$(date +%s); rc=0
       timeout "$SMOKE_TIMEOUT" "$RUN" cli train --rl_library rsl_rl --task "$task" \
-        --num_envs "$SMOKE_NUM_ENVS" --max_iterations "$SMOKE_ITERS" --seed 1 ${extra[@]+"${extra[@]}"} \
+        --num_envs "$SMOKE_NUM_ENVS" --max_iterations "$SMOKE_ITERS" --seed 1 ${extra[@]+"${extra[@]}"} $ISAACLAB_HEADLESS_FLAGS \
         > "$OUT/smoke_$tag.log" 2>&1 || rc=$?
       peak="$(gpu_monitor_stop)"; dt=$(( $(date +%s) - t0 ))
       if [ "$rc" = 0 ]; then rec "smoke $task [$phys]" PASS "${dt}s, peak GPU mem ${peak} MiB (whole GPU)"

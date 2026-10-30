@@ -108,3 +108,27 @@ isaaclab_summary() {
     echo "  Isaac Lab VERSION file = $(cat "$ISAACLAB_PATH/VERSION")"
   fi
 }
+
+# ---------------------------------------------------------------------------------------------
+# Headless + WSL2 handling
+# Isaac Lab 3.0 REJECTS the old `--headless` flag (verified in release/3.0.0:
+# source/isaaclab_physx/test/app/test_kit_launcher.py::test_deprecated_render_flags_are_rejected).
+# Headless in 3.0 = no visualizer: `--viz none` (alias of --visualizer) and `--livestream 0`.
+# Used for `isaaclab train|play` and the Mimic scripts that call add_launcher_args (NOT robomimic/train.py).
+#   ISAACLAB_HEADLESS_FLAGS=""   disables the extra flags (e.g. to open a viewer on native Linux)
+# ---------------------------------------------------------------------------------------------
+: "${ISAACLAB_HEADLESS_FLAGS=--viz none --livestream 0}"
+export LIVESTREAM="${LIVESTREAM:-0}"
+
+# isaac_skip_if_requested : exit with the SKIP code when SKIP_ISAAC=1
+isaac_skip_if_requested() {
+  if [ "${SKIP_ISAAC:-0}" = 1 ]; then skip_exit "SKIP_ISAAC=1 (Isaac Sim / Isaac Lab steps skipped)"; fi
+}
+
+isaaclab_wsl_note() {
+  is_wsl || return 0
+  warn "WSL2: NVIDIA does not officially support Isaac Sim / Isaac Lab on WSL2. Continuing headless anyway"
+  warn "      (flags: ${ISAACLAB_HEADLESS_FLAGS:-<none>}). If Kit/RTX fails, Newton-physics training may still work."
+  [ "${RSP_GPU_ARCH:-}" = blackwell ] && log "Blackwell GPU: Isaac Lab 3.0 ships torch 2.11 cu130 (has sm_120 kernels); the kit does not touch it."
+  return 0
+}

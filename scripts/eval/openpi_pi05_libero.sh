@@ -10,9 +10,11 @@ source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 SRC="$RSP_SRC/openpi"; [ -d "$SRC/.venv" ] || die "Run scripts/11_install_openpi.sh first"
 OUT="$RSP_LOGS/eval_openpi_libero_$(stamp)"; mkdir -p "$OUT"
 cd "$SRC"
+UVRUN=(uv run); [ -f .rsp_no_sync ] && UVRUN=(uv run --no-sync)   # see 11_install_openpi.sh OPENPI_TORCH_CU128
+select_mujoco_gl "$SRC/examples/libero/.venv/bin/python"          # EGL, or OSMesa fallback on WSL2
 log "Starting policy server (first run downloads the checkpoint)"
 # shellcheck disable=SC2086
-uv run scripts/serve_policy.py --env LIBERO --port "$PORT" $SERVER_ARGS > "$OUT/server.log" 2>&1 &
+"${UVRUN[@]}" scripts/serve_policy.py --env LIBERO --port "$PORT" $SERVER_ARGS > "$OUT/server.log" 2>&1 &
 SPID=$!; trap 'kill $SPID 2>/dev/null || true' EXIT
 wait_port "$PORT" 1800 || { tail -n 40 "$OUT/server.log"; die "server did not come up"; }
 ok "server listening on :$PORT"
