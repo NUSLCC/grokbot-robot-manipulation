@@ -57,7 +57,7 @@ else
 fi
 
 # ---- step table: name | kind (metric parser) | depends-on | command ----
-STEPS=(); declare -A KIND DEP CMD STATUS SECS PEAK METRIC LOGF HINT
+STEPS=(); declare -A KIND DEP CMD STATUS SECS PEAK METRIC LOGF HINT BLOCKED
 add() { STEPS+=("$1"); KIND[$1]="$2"; DEP[$1]="$3"; CMD[$1]="$4"; }
 q() { local a out=""; for a in "$@"; do out+=" $(printf '%q' "$a")"; done; echo "$out"; }
 add system_check   syscheck       ""               "bash $(q "$D/00_check_system.sh")"
@@ -88,6 +88,10 @@ skip_reason() {
   if [ "$SKIP_INSTALL" = 1 ]; then case "$s" in base_deps|*_install) echo "SKIP_INSTALL=1"; return ;; esac; fi
   local d="${DEP[$s]}"
   if [ -n "$d" ] && [ "${STATUS[$d]:-}" = FAIL ]; then echo "needs $d (FAILED)"; return; fi
+  # A dependency that was SKIPPED because it could not run (its own dependency failed/skipped, or it exited 77)
+  # blocks this step too. A dependency skipped by the user's choice (ONLY_STEPS / SKIP_STEPS / SKIP_INSTALL /
+  # SKIP_ISAAC / optional) is assumed to be done already, so this step still runs.
+  if [ -n "$d" ] && [ "${STATUS[$d]:-}" = SKIP ] && [ "${BLOCKED[$d]:-0}" = 1 ]; then echo "needs $d (SKIPPED)"; return; fi
   echo ""
 }
 
@@ -118,6 +122,7 @@ for s in "${STEPS[@]}"; do
   why="$(skip_reason "$s")"
   if [ -n "$why" ]; then
     STATUS[$s]=SKIP; SECS[$s]="-"; PEAK[$s]="-"; METRIC[$s]="$why"; HINT[$s]=""
+    case "$why" in "needs "*) BLOCKED[$s]=1 ;; *) BLOCKED[$s]=0 ;; esac
     log "[$n] $s: SKIP ($why)"; continue
   fi
   log "[$n] $s: running  (log: $lf)"
@@ -136,14 +141,14 @@ for s in "${STEPS[@]}"; do
   PEAK[$s]="$(sampler_stop "$OUT/${s}.gpu.csv")"
   case "$rc" in
     0)  STATUS[$s]=PASS; HINT[$s]="" ;;
-    "$RSP_EXIT_SKIP") STATUS[$s]=SKIP; HINT[$s]="$(grep -aoE 'SKIP: .*' "$lf" | tail -n1 | sed 's/^SKIP: //')" ;;
+    "$RSP_EXIT_SKIP") STATUS[$s]=SKIP; BLOCKED[$s]=1; HINT[$s]="$(grep -aoE 'SKIP: .*' "$lf" | tail -n1 | sed 's/^SKIP: //')" ;;
     *)  STATUS[$s]=FAIL; HINT[$s]="$(failure_hint "$s" "$lf" "$rc") (rc=$rc)" ;;
   esac
   METRIC[$s]="$(extract_metric "${KIND[$s]}" "$lf")"
   [ "${STATUS[$s]}" = FAIL ] && [ "${KIND[$s]}" = install ] && METRIC[$s]="n/a"
   [ "${STATUS[$s]}" = SKIP ] && [ -n "${HINT[$s]}" ] && METRIC[$s]="${HINT[$s]}" && HINT[$s]=""
   log "[$n] $s: ${STATUS[$s]} in ${SECS[$s]}s  peak GPU ${PEAK[$s]} MiB  metric: ${METRIC[$s]}"
-  if [ "${STATUS[$s]}" = FAIL ]; then warn "      hint: ${HINT[$s]}"; tail -n 15 "$lf" | sed 's/^/      | /'; fi
+  if [ "${STATUS[$s]}" = FAIL ]; then warn "      hint: ${HINT[$s]}"; tail -n 20 "$lf" | sed 's/^/      | /'; fi
 done
 
 # ---- summary ----
@@ -175,7 +180,7 @@ SUM="$OUT/SUMMARY.md"
     echo; echo "## Failures"; echo
     for s in "${STEPS[@]}"; do
       [ "${STATUS[$s]}" = FAIL ] || continue
-      echo "### $s"; echo; echo "- Log: \`${LOGF[$s]}\`"; echo "- Hint: ${HINT[$s]}"; echo; echo '```'; tail -n 20 "${LOGF[$s]}"; echo '```'; echo
+      echo "### $s"; echo; echo "- Log: \`${LOGF[$s]}\`"; echo "- Hint: ${HINT[$s]}"; echo; echo '```'; tail -n 40 "${LOGF[$s]}"; echo '```'; echo
     done
   fi
   echo

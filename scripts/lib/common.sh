@@ -385,3 +385,72 @@ find_cuda_home() {
   done
   return 1
 }
+
+# ---------------------------------------------------------------------------------------------
+# apt / dpkg health. Test overrides:
+#   RSP_DPKG_UPDATES_DIR=path   read this instead of /var/lib/dpkg/updates
+#   RSP_DPKG_AUDIT_CMD="cmd"    run this instead of 'dpkg --audit'
+# ---------------------------------------------------------------------------------------------
+# dpkg_interrupted -> true if a previous dpkg/apt run was interrupted (apt then refuses every install with
+# "E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a'").
+dpkg_interrupted() {
+  local d="${RSP_DPKG_UPDATES_DIR:-/var/lib/dpkg/updates}" a
+  if [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then return 0; fi
+  a="$(${RSP_DPKG_AUDIT_CMD:-dpkg --audit} 2>/dev/null || true)"
+  [ -n "$a" ]
+}
+# apt_repo_notes FILE -> one line per apt source that failed to refresh, e.g.
+#   https://downloads.cursor.com/aptrepo grok-bot (NO_PUBKEY 42A1772E62E492D6)
+apt_repo_notes() {
+  [ -s "$1" ] || return 0
+  awk '
+    /^(W|E): / {
+      repo=""; why=""
+      if (match($0, /GPG error: [^ ]+ [^ ]+/)) { split(substr($0, RSTART+11, RLENGTH-11), a, " "); repo=a[1] " " a[2] }
+      else if (match($0, /Failed to fetch [^ ]+/)) {
+        u=substr($0, RSTART+16, RLENGTH-16)
+        if (u ~ /\/dists\//) { b=u; sub(/\/dists\/.*/, "", b); s=u; sub(/.*\/dists\//, "", s); sub(/\/.*/, "", s); repo=b " " s }
+        else repo=u
+      }
+      else if (match($0, /[Tt]he repository .[^ ]+ [^ ]+/)) { split(substr($0, RSTART+15, RLENGTH-15), a, " "); repo=a[1] " " a[2] }
+      if (repo == "") next
+      if (match($0, /NO_PUBKEY [0-9A-Fa-f]+/)) why=substr($0, RSTART, RLENGTH)
+      else if ($0 ~ /is not signed/) why="not signed"
+      else if ($0 ~ /does not have a Release file/) why="no Release file"
+      else if ($0 ~ /EXPKEYSIG/) why="expired key"
+      else if ($0 ~ /Could not resolve|Temporary failure resolving/) why="network/DNS"
+      else if (match($0, /[0-9][0-9][0-9] +[A-Za-z][A-Za-z ]*/)) why=substr($0, RSTART, RLENGTH)
+      if (!(repo in seen)) { seen[repo]=why; order[++n]=repo } else if (seen[repo]=="" && why!="") seen[repo]=why
+    }
+    END { for (i=1;i<=n;i++) { r=order[i]; print r (seen[r]!="" ? " (" seen[r] ")" : "") } }' "$1"
+}
+# apt_update_tolerant -> 'sudo apt-get update' that never fails the caller. Sources that cannot be refreshed
+# (third-party repos with a missing key, offline mirrors) are reported as one note each and otherwise ignored:
+# apt keeps their old index files and the kit's packages all come from Ubuntu's own archive.
+apt_update_tolerant() {
+  local f rc=0 line
+  f="$(mktemp)"
+  sudo apt-get update 2>&1 | tee "$f" || rc=$?
+  while IFS= read -r line; do
+    [ -n "$line" ] && warn "note: apt source could not be refreshed and was ignored (not needed by this kit): $line"
+  done < <(apt_repo_notes "$f")
+  [ "$rc" = 0 ] || warn "apt-get update exited $rc; continuing with the package lists apt already has"
+  rm -f "$f"
+  return 0
+}
+# dpkg_repair_if_interrupted -> finish an interrupted dpkg run (sudo dpkg --configure -a) before installing.
+# RSP_AUTO_DPKG_CONFIGURE=0 only reports it and fails instead.
+dpkg_repair_if_interrupted() {
+  dpkg_interrupted || return 0
+  if [ "${RSP_AUTO_DPKG_CONFIGURE:-1}" != 1 ]; then
+    fail "apt is broken: an earlier dpkg/apt run was interrupted. Run: sudo dpkg --configure -a   then rerun this script."
+    return 1
+  fi
+  warn "An earlier dpkg/apt run was interrupted (apt would refuse to install anything)."
+  log "Running: sudo dpkg --configure -a   (finishes the interrupted install; RSP_AUTO_DPKG_CONFIGURE=0 to only report)"
+  if sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a; then ok "dpkg --configure -a finished; apt is usable again"
+  else
+    fail "apt is broken: 'sudo dpkg --configure -a' failed (see its error above). Fix that package, then rerun this script."
+    return 1
+  fi
+}

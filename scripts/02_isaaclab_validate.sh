@@ -23,7 +23,7 @@ isaac_skip_if_requested
 
 OUT="$RSP_LOGS/isaaclab_validate_$(stamp)"; mkdir -p "$OUT"
 exec > >(tee "$OUT/report.txt") 2>&1
-RESULTS=()
+RESULTS=(); FAILED_LOGS=()
 rec() { RESULTS+=("$1|$2|$3"); }
 
 log "== Detecting Isaac Lab / Isaac Sim =="
@@ -104,7 +104,7 @@ if [ "${SKIP_SMOKE:-0}" = 1 ]; then warn "SKIP_SMOKE=1"; else
     grep -oE 'Isaac(Contrib)?-[A-Za-z0-9-]*(Franka|Lift|Reach|Drawer|Stack|Allegro|Cabinet|Mimic)[A-Za-z0-9-]*' "$OUT/list_envs.txt" | sort -u > "$OUT/manipulation_tasks.txt" || true
     rec "list_envs" PASS "$(wc -l < "$OUT/manipulation_tasks.txt") manipulation task IDs -> $OUT/manipulation_tasks.txt"
     head -n 40 "$OUT/manipulation_tasks.txt" | sed 's/^/  /'
-  else rec "list_envs" FAIL "see $OUT/list_envs.txt"; tail -n 30 "$OUT/list_envs.txt"; fi
+  else rec "list_envs" FAIL "see $OUT/list_envs.txt"; FAILED_LOGS+=("$OUT/list_envs.txt"); fi
 
   for task in $SMOKE_TASKS; do
     for phys in $SMOKE_PHYSICS; do
@@ -118,7 +118,7 @@ if [ "${SKIP_SMOKE:-0}" = 1 ]; then warn "SKIP_SMOKE=1"; else
         > "$OUT/smoke_$tag.log" 2>&1 || rc=$?
       peak="$(gpu_monitor_stop)"; dt=$(( $(date +%s) - t0 ))
       if [ "$rc" = 0 ]; then rec "smoke $task [$phys]" PASS "${dt}s, peak GPU mem ${peak} MiB (whole GPU)"
-      else rec "smoke $task [$phys]" FAIL "rc=$rc after ${dt}s; log $OUT/smoke_$tag.log"; tail -n 25 "$OUT/smoke_$tag.log"; fi
+      else rec "smoke $task [$phys]" FAIL "rc=$rc after ${dt}s; log $OUT/smoke_$tag.log"; FAILED_LOGS+=("$OUT/smoke_$tag.log"); fi
     done
   done
 fi
@@ -134,4 +134,11 @@ Notes:
  * If a physics preset is rejected for a task, run list_envs and check that task's presets.
  * No changes were made to the Isaac environment.
 TIP
+# Failed logs go LAST so the runner's console tail and SUMMARY.md show the real error, not just this table.
+for f in ${FAILED_LOGS[@]+"${FAILED_LOGS[@]}"}; do
+  echo; log "== Last 30 lines of $f =="
+  tail -n 30 "$f" 2>/dev/null || echo "  (log missing)"
+  e="$(grep -aE '(Error|Exception|error:|FATAL|Segmentation fault|core dumped)' "$f" 2>/dev/null | grep -avE '^\s*(File "|warnings\.warn)' | tail -n1 | sed 's/^[[:space:]]*//' | cut -c1-160 || true)"
+  [ -n "$e" ] && echo "key error: $e"
+done
 exit "$nfail"

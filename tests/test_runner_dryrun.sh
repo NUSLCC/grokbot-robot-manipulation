@@ -54,5 +54,55 @@ ONLY_STEPS="system_check maniskill_ppo" bash "$K/scripts/run_wsl_headless.sh" > 
 S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
 check "ONLY_STEPS runs selected"      "$(row maniskill_ppo)" PASS
 check "ONLY_STEPS skips others"       "$(row act_aloha)" SKIP
+# Native Linux (dual 3090, as on the user's workstation): interrupted dpkg in base_deps + failed Isaac smoke.
+# Everything that depends on base_deps must be SKIP (transitively: installs SKIP -> their train/eval steps SKIP).
+rm -rf "$RUNS_DIR"
+RSP_FORCE_WSL=0 FAKE_GPU_NAME="NVIDIA GeForce RTX 3090" FAKE_GPU_CC=8.6 FAKE_GPU_COUNT=2 \
+  RSP_DRY_RUN_RC="base_deps=100 isaac_validate=1" bash "$K/scripts/run_wsl_headless.sh" > "$TMP/out4.txt" 2>&1; rc=$?
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+hint() { grep -A3 "^### $1\$" "$S" | grep '^- Hint:' | sed 's/^- Hint: //'; }
+check "native: exit code = 2 FAILs"       "$rc" 2
+check "native: platform line"             "$(grep -c '^- Platform: native Linux' "$S")" 1
+check "native: base_deps FAIL"            "$(row base_deps)" FAIL
+check "native: dpkg hint"                 "$(hint base_deps)" "apt is broken: run sudo dpkg --configure -a, then rerun (rc=100)"
+check "native: no Vulkan hint for apt log" "$(hint base_deps | grep -ci vulkan)" 0
+check "native: lerobot_install SKIP"      "$(met lerobot_install)" "needs base_deps (FAILED)"
+for st in act_aloha diffusion_pusht smolvla_libero_eval; do
+  check "native: $st SKIP (skipped dep)"  "$(row $st) / $(met $st)" "SKIP / needs lerobot_install (SKIPPED)"
+done
+check "native: openpi eval SKIP"          "$(met openpi_pi05_libero_eval)" "needs openpi_install (SKIPPED)"
+check "native: maniskill_ppo SKIP"        "$(met maniskill_ppo)" "needs maniskill_install (SKIPPED)"
+check "native: isaac_rl SKIP"             "$(met isaac_rl_franka)" "needs isaac_validate (FAILED)"
+check "native: Isaac hint has real error" "$(hint isaac_validate)" \
+  "Isaac error: ValueError: simulated smoke failure for the dry run (fixture); see the smoke log tail in the step log and docs/ISAAC_LAB.md (rc=1)"
+check "native: smoke log tail in SUMMARY" "$(grep -c '^ValueError: simulated smoke failure' "$S")" 1
+check "native: no WSL wording in hints"   "$(grep -E '^- Hint:' "$S" | grep -ciE 'wsl')" 0
+check "native: no WSL wording on console" "$(grep -E 'hint:|WSL2' "$TMP/out4.txt" | grep -ciE 'wsl2|wslconfig')" 0
+
+# Same failures on simulated WSL2: the Isaac hint now carries the WSL2 support note.
+rm -rf "$RUNS_DIR"
+RSP_FORCE_WSL=1 RSP_DRY_RUN_RC="base_deps=100 isaac_validate=1" bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "wsl: dpkg hint same wording"       "$(hint base_deps)" "apt is broken: run sudo dpkg --configure -a, then rerun (rc=100)"
+check "wsl: Isaac hint mentions WSL2"     "$(hint isaac_validate | grep -c 'WSL2 is not officially supported')" 1
+
+# User-chosen skips do NOT block dependents: SKIP_INSTALL=1 still runs the train/eval steps.
+rm -rf "$RUNS_DIR"
+SKIP_INSTALL=1 SKIP_ISAAC=1 bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1; rc=$?
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "SKIP_INSTALL: exit 0"              "$rc" 0
+check "SKIP_INSTALL: lerobot_install SKIP" "$(row lerobot_install)" SKIP
+check "SKIP_INSTALL: act_aloha still runs" "$(row act_aloha)" PASS
+
+# rc 77 (step skipped itself at runtime) blocks its dependents.
+rm -rf "$RUNS_DIR"
+SKIP_ISAAC=1 RSP_DRY_RUN_RC="lerobot_install=77" bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "rc77 install: act_aloha SKIP"      "$(met act_aloha)" "needs lerobot_install (SKIPPED)"
+
+# Unit tests for hints / apt / dpkg / declared dependencies (run from here so the existing CI step covers them).
+if bash "$T/test_hints_apt.sh" > "$TMP/hints.txt" 2>&1; then echo "ok   - tests/test_hints_apt.sh ($(grep -c '^ok' "$TMP/hints.txt") checks)"
+else grep -v '^ok' "$TMP/hints.txt"; echo "FAIL - tests/test_hints_apt.sh"; nfail=$((nfail+1)); fi
+
 echo; [ "$nfail" = 0 ] && echo "ALL PASS" || echo "$nfail FAILED"
 exit "$nfail"

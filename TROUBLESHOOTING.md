@@ -7,6 +7,13 @@ This page lists common issues and fixes observed while hardening the kit. See al
   - Fix: Do not change the NVIDIA driver. When a CUDA toolkit is required for building, install a side-by-side CUDA 12 toolkit only (never the driver): INSTALL_CUDA_TOOLKIT=12-4 bash scripts/01_base_deps.sh. For that script only, set CUDA_HOME=/usr/local/cuda-12.4.
 - Ubuntu 22.04 vs 24.04
   - Both are supported. 01_base_deps.sh picks apt names per release (24.04: libgl1 + libglx-mesa0 instead of libgl1-mesa-glx) and skips any name apt does not know. System Python on 24.04 is 3.12 and PEP 668 "externally managed": the kit never pip-installs into it, and every framework gets its own Python via uv or conda (3.8 / 3.10 / 3.11 / 3.12).
+- apt is broken: "E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a'" (base_deps rc=100)
+  - Cause: an earlier apt/dpkg run (any package, not this kit) was interrupted, so apt refuses every install.
+  - Fix: 01_base_deps.sh now detects this and runs `sudo dpkg --configure -a` once (logged) before installing; set RSP_AUTO_DPKG_CONFIGURE=0 to only report it. If that command fails, read its error, fix that package, and rerun.
+- apt update warnings from third-party sources (e.g. NO_PUBKEY for a vendor repo)
+  - These are printed as one "note: apt source could not be refreshed and was ignored" line per source and never fail the install: every package the kit needs comes from Ubuntu's own archive. Fix the vendor's key separately if you need that repo's updates.
+- Dependent steps in run_wsl_headless.sh
+  - A step whose dependency FAILED, or was SKIPPED because it could not run, is SKIP ("needs X (FAILED)" / "needs X (SKIPPED)"). A dependency skipped on purpose (SKIP_INSTALL=1, SKIP_STEPS, ONLY_STEPS) is assumed already installed, so its dependents still run.
 - PYTHONPATH/LD_LIBRARY_PATH leaks from Isaac scripts
   - Symptom: Other envs break after using Isaac; import conflicts, missing GL libs.
   - Fix: Ensure your shell does not source setup_conda_env.sh or setup_python_env.sh automatically. The kit strips these via clean_python_env(). Open a fresh shell.

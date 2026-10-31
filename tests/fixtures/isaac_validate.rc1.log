@@ -1,0 +1,29 @@
+[rsp 15:25:55] == Detecting Isaac Lab / Isaac Sim ==
+[rsp 15:26:01] == Headless RL smoke: Isaac-Reach-Franka  physics=default  num_envs=32  iters=2 ==
+
+[rsp 15:26:17] == Isaac Lab validation summary ==
+CHECK                              RESULT DETAIL
+Python                             PASS  3.12.15 (Isaac Lab 3.0 requires 3.12)
+PyTorch                            PASS  2.11.0+cu130 cuda=13.0 (release/3.0.0 pins torch==2.11.0 cu130)
+CUDA from Isaac env                PASS  NVIDIA GeForce RTX 3090, 23.6 GiB, matmul_ok=True
+Isaac Sim (pip wheel)              PASS  isaacsim 6.2.0.0
+isaaclab_mimic                     INFO  not installed (only needed for Mimic workflow)
+robomimic                          INFO  not installed (Mimic BC training needs the 'mimic' extra)
+rsl_rl                             PASS  5.5.1
+Driver                             PASS  595.99.02 >= 595.58.03 (Isaac Sim 6.2 tested)
+list_envs                          PASS  58 manipulation task IDs -> @RUNTMP@/manipulation_tasks.txt
+smoke Isaac-Reach-Franka [default] FAIL  rc=1 after 15s; log @RUNTMP@/smoke_Isaac-Reach-Franka__default.log
+Logs: @RUNTMP@
+Notes:
+ * 'default' physics = Newton (Warp); it does NOT exercise Isaac Sim. The isaacsim_physx run does.
+ * If a physics preset is rejected for a task, run list_envs and check that task's presets.
+ * No changes were made to the Isaac environment.
+
+[rsp 15:26:17] == Last 30 lines of @RUNTMP@/smoke_Isaac-Reach-Franka__default.log ==
+Traceback (most recent call last):
+  File "/home/u/IsaacLab/scripts/reinforcement_learning/rsl_rl/train.py", line 88, in <module>
+    main()
+  File "/home/u/IsaacLab/scripts/reinforcement_learning/rsl_rl/train.py", line 61, in main
+    env = gym.make(args_cli.task, cfg=env_cfg)
+ValueError: simulated smoke failure for the dry run (fixture)
+key error: ValueError: simulated smoke failure for the dry run (fixture)
