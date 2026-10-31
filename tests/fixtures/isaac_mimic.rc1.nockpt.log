@@ -1,0 +1,27 @@
+[rsp 00:26:12] Mimic stage: all
+ + egl-probe==1.0.2
+      Built egl-probe==1.0.2
+[INFO] robomimic: EGL device probe (egl_probe) found 2 devices
+Epoch 20 Memory Usage: 3149 MB
+{
+    "Log_Likelihood": 19.005582294464112,
+    "Loss": -19.005582294464112,
+    "Optimizer/policy0_lr": 0.0010000000000000002,
+    "Policy_Grad_Norms": 7168.751545483218,
+    "Time_Data_Loading": 0.002688256899515788,
+    "Time_Epoch": 0.026366285483042397,
+    "Time_Log_Info": 6.734132766723633e-05,
+    "Time_Process_Batch": 0.00044208765029907227,
+    "Time_Train_Batch": 0.009655070304870606
+}
+save checkpoint to /home/lcc/IsaacLab/logs/robomimic/IsaacContrib-Stack-Cube-Franka-IK-Rel/bc_rnn_low_dim_franka_stack/20261101003144/models/model_epoch_20.pth
+
+Epoch 20 Memory Usage: 3149 MB
+
+finished run successfully!
+Loading user config located at: '/home/lcc/IsaacLab/.venv/lib/python3.12/site-packages/isaacsim/kit/data/Kit/IsaacLab/3.0/user.config.json'
+2026-10-31T16:31:43Z [0ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-10-31T16:31:43Z [108ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-10-31T16:31:43Z [110ms] [Warning] [carb.windowing-glfw.plugin] GLContext: no display, eglGetDisplay skipped (headless)
+[ OK ] robomimic models are saved under $ISAACLAB_PATH/logs/robomimic
+[FAIL] No robomimic checkpoint found; set CHECKPOINT=/path/model.pth

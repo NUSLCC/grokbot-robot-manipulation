@@ -12,6 +12,9 @@ isaac_skip_if_requested; isaaclab_wsl_note
 # Headless: ISAACLAB_HEADLESS_FLAGS (default "--viz none --livestream 0") go to annotate/generate/play
 # (they use Isaac Lab launcher args). robomimic/train.py is plain PyTorch and takes no launcher flags.
 : "${STAGE:=all}"; : "${N_GEN:=1000}"; : "${GEN_ENVS:=100}"; : "${EPOCHS:=1000}"
+MIMIC_TASK=IsaacContrib-Stack-Cube-Franka-IK-Rel   # robomimic task name (train + play)
+case "$STAGE" in all|annotate|generate|train|play) ;; *) die "STAGE must be all|annotate|generate|train|play (got '$STAGE')" ;; esac
+log "Mimic stage: $STAGE"
 RUN="$(dirname "$0")/../lib/isaaclab_run.sh"
 isaaclab_detect; [ "$ISAACLAB_MODE" != none ] || die "Isaac Lab not detected (set ISAACLAB_PATH)"
 D="$RSP_DATA/isaaclab_mimic"; mkdir -p "$D"
@@ -26,7 +29,8 @@ if ! "$RUN" python -c "import isaaclab_mimic, robomimic" >/dev/null 2>&1; then
   fi
 fi
 
-if [ ! -s "$D/dataset.hdf5" ]; then log "Downloading human demo dataset"; wget -c -O "$D/dataset.hdf5" "$URL"; fi
+if [ "$STAGE" = play ]; then :   # play needs only the checkpoint, not the datasets
+elif [ ! -s "$D/dataset.hdf5" ]; then log "Downloading human demo dataset"; wget -c -O "$D/dataset.hdf5" "$URL"; fi
 s() { [ "$STAGE" = all ] || [ "$STAGE" = "$1" ]; }
 if s annotate; then
   "$RUN" python scripts/imitation_learning/isaaclab_mimic/annotate_demos.py --task Isaac-Stack-Cube-Franka-IK-Rel-Mimic-v0 \
@@ -41,14 +45,19 @@ if s generate; then
   echo "Peak GPU memory (generate): $(gpu_monitor_stop) MiB"
 fi
 if s train; then
-  "$RUN" python scripts/imitation_learning/robomimic/train.py --task IsaacContrib-Stack-Cube-Franka-IK-Rel --algo bc \
+  "$RUN" python scripts/imitation_learning/robomimic/train.py --task "$MIMIC_TASK" --algo bc \
     --epochs "$EPOCHS" --dataset "$D/generated_dataset.hdf5"
   ok "robomimic models are saved under \$ISAACLAB_PATH/logs/robomimic"
 fi
 if s play; then
-  CK="${CHECKPOINT:-$(ls -t "$ISAACLAB_PATH"/logs/robomimic/*/*/models/*.pth 2>/dev/null | head -n1 || true)}"
-  [ -n "$CK" ] || die "No robomimic checkpoint found; set CHECKPOINT=/path/model.pth"
-  "$RUN" python scripts/imitation_learning/robomimic/play.py --task IsaacContrib-Stack-Cube-Franka-IK-Rel \
+  # robomimic saves to logs/robomimic/<task>/<experiment>/<timestamp>/models/model_epoch_N.pth (depth varies by
+  # version), so find_robomimic_ckpt searches at any depth, newest first, preferring this task's folder.
+  CK="${CHECKPOINT:-$(find_robomimic_ckpt "$ISAACLAB_PATH/logs/robomimic" "$MIMIC_TASK")}"
+  [ -n "$CK" ] || die "No robomimic checkpoint found under $ISAACLAB_PATH/logs/robomimic; set CHECKPOINT=/path/model.pth"
+  [ -f "$CK" ] || die "No robomimic checkpoint found: CHECKPOINT=$CK does not exist"
+  ok "robomimic checkpoint: $CK"
+  # play.py prints 'Successful trials: K, out of N trials' and 'Success rate: <0..1>' (the runner's metric).
+  "$RUN" python scripts/imitation_learning/robomimic/play.py --task "$MIMIC_TASK" \
     --num_rollouts "${N_ROLLOUTS:-50}" --checkpoint "$CK" $ISAACLAB_HEADLESS_FLAGS
 fi
 ok "Mimic pipeline stage '$STAGE' done. Data in $D"

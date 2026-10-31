@@ -107,3 +107,24 @@ memory and cuDNN autotune workspaces (LeRobot sets `cudnn.benchmark=True`), not 
 algorithms that fit the free memory. The diffusion script sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
 (if unset) to keep that cache compact. If a shared 24 GB card still runs out: `BATCH=16`, or add
 `--cudnn_deterministic=true` by hand (slower).
+
+## Isaac Lab Mimic: `[FAIL] No robomimic checkpoint found` after training finished
+Annotate, generate and train all finished (`finished run successfully!`, `save checkpoint to .../model_epoch_N.pth`),
+then the play stage could not find the model. robomimic (Isaac Lab release/3.0.0) saves to
+`$ISAACLAB_PATH/logs/robomimic/<task>/<experiment>/<timestamp>/models/model_epoch_N.pth`, one folder deeper than
+the old lookup searched. The kit now takes the newest `*/models/*.pth` at any depth under
+`logs/robomimic/IsaacContrib-Stack-Cube-Franka-IK-Rel` (then anywhere under `logs/robomimic`), and prints
+`[ OK ] robomimic checkpoint: <path>` before playing. `CHECKPOINT=/path/model_epoch_N.pth` overrides it.
+
+The dataset and the checkpoint are kept, so rerun only the play stage (no download, annotate, generate or training):
+```bash
+RUN_MIMIC=1 QUICK=1 MIMIC_STAGE=play ONLY_STEPS=isaac_mimic bash scripts/run_wsl_headless.sh
+# or directly: STAGE=play N_ROLLOUTS=5 bash scripts/train/isaaclab_mimic_stack.sh
+```
+`MIMIC_STAGE` (or `STAGE`) = `all|annotate|generate|train|play`. `QUICK=1` plays 5 rollouts, otherwise 50.
+The step's metric is play.py's result (`Successful trials: K, out of N trials` / `Success rate: x`), e.g.
+`play success 40.0% (2/5 rollouts)`. A QUICK model (20 demos, 20 epochs) is not expected to stack well.
+
+The `OpenGL/EGL problem` hint that this failure printed was wrong: Isaac Sim's headless start-up warnings
+(`[Warning] [omni.platforminfo.plugin] failed to open the default display. Can't verify X Server version.`) and
+robomimic's `egl-probe` dependency are normal on a machine without a display, and the hints now ignore them.

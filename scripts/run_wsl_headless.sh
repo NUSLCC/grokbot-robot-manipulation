@@ -13,6 +13,7 @@
 #   SKIP_ISAAC=1         skip the Isaac Sim / Isaac Lab steps
 #   ISAAC_PHYSX=0        skip the extra Isaac Sim PhysX smoke (Kit; the step most likely to fail on WSL2)
 #   RUN_MIMIC=1          also run the Isaac Lab Mimic pipeline (needs the 'mimic' extra in your Isaac env)
+#   MIMIC_STAGE=play     isaac_mimic: run only that stage (all|annotate|generate|train|play; play = newest checkpoint)
 #   SKIP_STEPS="a b"     skip steps by name    ONLY_STEPS="a b"   run only these steps
 #   SKIP_INSTALL=1       do not run base_deps / *_install steps (assume already installed)
 #   EVAL_ONLY=1          act_aloha / diffusion_pusht: only re-evaluate the newest saved checkpoint (no training)
@@ -66,7 +67,9 @@ add base_deps      install        ""               "bash $(q "$D/01_base_deps.sh
 add isaac_validate isaac_validate ""               "env SMOKE_PHYSICS=default $(q "${Q_ISAAC[@]}") bash $(q "$D/02_isaaclab_validate.sh")"
 add isaac_physx_smoke isaac_validate isaac_validate "env SMOKE_PHYSICS=isaacsim_physx $(q "${Q_ISAAC[@]}") bash $(q "$D/02_isaaclab_validate.sh")"
 add isaac_rl_franka isaac_rl      isaac_validate   "env $(q "${Q_RL[@]}") bash $(q "$D/train/isaaclab_rl_franka.sh")"
-add isaac_mimic    install        isaac_validate   "env $(q "${Q_MIMIC[@]}") bash $(q "$D/train/isaaclab_mimic_stack.sh")"
+# MIMIC_STAGE (or STAGE) = all|annotate|generate|train|play picks the Mimic stage(s); play reuses the newest checkpoint.
+Q_MIMIC+=("STAGE=${MIMIC_STAGE:-${STAGE:-all}}")
+add isaac_mimic    isaac_mimic    isaac_validate   "env $(q "${Q_MIMIC[@]}") bash $(q "$D/train/isaaclab_mimic_stack.sh")"
 add lerobot_install install       base_deps        "bash $(q "$D/10_install_lerobot.sh")"
 add act_aloha      lerobot_train  lerobot_install  "env $(q "${Q_ACT[@]}") bash $(q "$D/train/lerobot_act_aloha.sh")"
 add diffusion_pusht lerobot_train lerobot_install  "env $(q "${Q_DP[@]}") bash $(q "$D/train/lerobot_diffusion_pusht.sh")"
@@ -130,7 +133,8 @@ for s in "${STEPS[@]}"; do
   sampler_start "$OUT/${s}.gpu.csv"
   t0=$(date +%s)
   if [ "$RSP_DRY_RUN" = 1 ]; then
-    cmd="bash $(q "$RSP_KIT_DIR/tests/fake_step.sh") $(q "$s") $(q "$(dry_rc "$s")")"
+    # first log line = the real command (lets tests check what would run, e.g. STAGE=play for isaac_mimic)
+    cmd="echo $(q "[dry-run] cmd: ${CMD[$s]}"); bash $(q "$RSP_KIT_DIR/tests/fake_step.sh") $(q "$s") $(q "$(dry_rc "$s")")"
   else
     cmd="${CMD[$s]}"
   fi

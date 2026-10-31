@@ -9,7 +9,7 @@ export PATH="$T/fake-bin:$PATH" FAKE_GPU_USED=4321
 mkdir -p "$TMP/eval_smolvla_libero_x"; echo '{"overall":{"pc_success":85.0}}' > "$TMP/eval_smolvla_libero_x/eval_info.json"
 nfail=0
 # Guard: the dry run replays tests/fixtures/<step>.log; a missing fixture silently turns every metric into n/a.
-for f in act_aloha base_deps diffusion_pusht isaac_physx_smoke isaac_rl_franka isaac_validate lerobot_install \
+for f in act_aloha base_deps diffusion_pusht isaac_mimic isaac_physx_smoke isaac_rl_franka isaac_validate lerobot_install \
          maniskill_install maniskill_ppo openpi_install openpi_pi05_libero_eval smolvla_libero_eval system_check; do
   if [ ! -s "$T/fixtures/$f.log" ]; then echo "FAIL - fixture missing: tests/fixtures/$f.log (is it git-ignored?)"; nfail=$((nfail+1)); fi
 done
@@ -127,6 +127,9 @@ else grep -v '^ok' "$TMP/lr.txt"; echo "FAIL - tests/test_lerobot_libero.sh"; nf
 
 if bash "$T/test_lerobot_sims.sh" > "$TMP/sims.txt" 2>&1; then echo "ok   - tests/test_lerobot_sims.sh ($(grep -c '^ok' "$TMP/sims.txt") checks)"
 else grep -v '^ok' "$TMP/sims.txt"; echo "FAIL - tests/test_lerobot_sims.sh"; nfail=$((nfail+1)); fi
+
+if bash "$T/test_isaac_mimic.sh" > "$TMP/mimic.txt" 2>&1; then echo "ok   - tests/test_isaac_mimic.sh ($(grep -c '^ok' "$TMP/mimic.txt") checks)"
+else grep -v '^ok' "$TMP/mimic.txt"; echo "FAIL - tests/test_isaac_mimic.sh"; nfail=$((nfail+1)); fi
 
 echo; [ "$nfail" = 0 ] && echo "ALL PASS" || echo "$nfail FAILED"
 exit "$nfail"

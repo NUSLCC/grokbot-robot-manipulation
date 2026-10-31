@@ -7,7 +7,7 @@ _last() { grep -aoE "$2" "$1" 2>/dev/null | tail -n1 || true; }
 _num()  { grep -aoE '[-+]?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?' <<<"$1" | tail -n1 || true; }
 
 # extract_metric KIND LOG -> one short string ("n/a" if nothing found)
-#   KIND: syscheck | isaac_validate | isaac_rl | lerobot_train | lerobot_eval | openpi_eval | maniskill_ppo | install
+#   KIND: syscheck | isaac_validate | isaac_rl | isaac_mimic | lerobot_train | lerobot_eval | openpi_eval | maniskill_ppo | install
 extract_metric() {
   local kind="$1" log="$2" m="" a b
   [ -s "$log" ] || { echo "n/a"; return 0; }
@@ -22,6 +22,16 @@ extract_metric() {
       a="$(_num "$(_last "$log" 'Mean reward:? *[-+]?[0-9.eE+-]+')")"
       [ -n "$a" ] && m="mean reward $a"
       b="$(_num "$(_last "$log" 'Learning iteration [0-9]+')")"; [ -n "$b" ] && m="${m:+$m, }iter $b" ;;
+    isaac_mimic)
+      # Isaac Lab release/3.0.0 scripts/imitation_learning/robomimic/play.py prints
+      #   "Successful trials: K, out of N trials" and "Success rate: <fraction 0..1>"
+      a="$(_num "$(_last "$log" 'Success rate: *[0-9.]+')")"
+      b="$(_last "$log" 'Successful trials: *[0-9]+, out of [0-9]+')"
+      if [ -n "$a" ]; then m="play success $(awk -v x="$a" 'BEGIN{printf "%.1f", x*100}')%"
+        [ -n "$b" ] && m="$m ($(grep -oE '[0-9]+' <<<"$b" | sed -n 1p)/$(grep -oE '[0-9]+' <<<"$b" | sed -n 2p) rollouts)"
+      else
+        b="$(_num "$(_last "$log" 'model_epoch_[0-9]+\.pth')")"; [ -n "$b" ] && m="trained (epoch ${b#-}), no play result"
+      fi ;;
     lerobot_train)
       a="$(_num "$(_last "$log" '(^| )loss:[0-9.eE+-]+')")"; [ -n "$a" ] && m="loss $a"
       b="$(_num "$(_last "$log" "(pc_success['\"]?: *|success:)[0-9.]+")")"; [ -n "$b" ] && m="${m:+$m, }eval success ${b}%" ;;
@@ -48,8 +58,11 @@ extract_metric() {
 
 # _hint_body LOG -> the log minus lines that only LIST package / file names (apt package lists, apt fetch lines),
 # so a package called "vulkan-tools" or "libegl1" in an install line never looks like a Vulkan / EGL error.
+# Also drops benign Isaac Sim (Kit) warnings on a headless machine, e.g. "[Warning] [omni.platforminfo.plugin] failed
+# to open the default display. Can't verify X Server version.", and installer lines naming egl-probe (robomimic dep).
 _hint_body() {
-  grep -avE 'Installing apt packages|apt-get install|^(Get|Hit|Ign):[0-9]+ |^(Reading|Building|Selecting|Preparing|Unpacking|Setting up) |^The following (NEW )?packages' "$1" 2>/dev/null || true
+  grep -avE 'Installing apt packages|apt-get install|^(Get|Hit|Ign):[0-9]+ |^(Reading|Building|Selecting|Preparing|Unpacking|Setting up) |^The following (NEW )?packages' "$1" 2>/dev/null \
+    | grep -avE '\[(Warning|Info|Verbose)\] \[[a-zA-Z0-9_.-]+\]|failed to open the default display|Can.t verify X Server version|egl[-_]probe(==| @|-[0-9])|(Built|Installed|Uninstalled|Prepared|Downloading|Collecting|Requirement already satisfied:?) .*egl|^ *[+-] [a-zA-Z0-9_.-]+==' || true
 }
 # _hint_wsl -> 0 on WSL2. Kept separate so every WSL-only wording sits behind one check.
 _hint_wsl() { declare -F is_wsl >/dev/null && is_wsl; }
@@ -67,7 +80,9 @@ failure_hint() {
     return 0
   fi
   body="$(_hint_body "$log")"
-  if _hint_has "has no attribute '_cloth_label'"; then
+  if _hint_has 'No robomimic checkpoint found'; then
+    echo "Mimic trained but the play stage found no checkpoint (.pth) under \$ISAACLAB_PATH/logs/robomimic: git pull the kit (it searches at any depth), then rerun only the play stage: MIMIC_STAGE=play (TROUBLESHOOTING.md 'Isaac Lab Mimic'), or set CHECKPOINT=/path/model_epoch_N.pth"
+  elif _hint_has "has no attribute '_cloth_label'"; then
     echo "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command"
   elif _hint_has 'EOFError: EOF when reading a line'; then
     if _hint_has 'libero'; then echo "LIBERO asked its first-run question (no config.yaml): git pull the kit (it writes LIBERO's default config itself) and rerun; see the libero_config line in the log"
@@ -110,7 +125,8 @@ failure_hint() {
   elif _hint_has 'vk::|vkCreateInstance|ErrorExtensionNotPresent|ErrorIncompatibleDriver|ErrorInitializationFailed|failed to find a rendering device|Vulkan (error|is not|not (available|supported|found))|(no|cannot find a) (compatible )?Vulkan'; then
     if [ "$wsl" = 1 ]; then echo "Vulkan rendering unavailable (normal on WSL2): see TROUBLESHOOTING.md 'WSL2: Vulkan'"
     else echo "Vulkan rendering unavailable: check 'vulkaninfo --summary' and that /usr/share/vulkan/icd.d/nvidia_icd.json exists (TROUBLESHOOTING.md 'SAPIEN/Vulkan errors')"; fi
-  elif _hint_has 'eglInitialize|eglGetDisplay|EGL_NOT_INITIALIZED|EGLError|Cannot initialize a EGL|GLContext|OSMesa(CreateContext| not| error)|libOSMesa\.so.*(cannot|No such)'; then
+  elif tail -n 80 <<<"$body" | grep -aqiE 'eglInitialize|eglGetDisplay|EGL_NOT_INITIALIZED|EGLError|Cannot initialize a EGL|GLContext|OSMesa(CreateContext| not| error)|libOSMesa\.so.*(cannot|No such)'; then
+    # only the end of the log (where the real error is): an EGL probe line early in a long log is not the failure
     echo "OpenGL/EGL problem: try MUJOCO_GL=osmesa (sudo apt install libosmesa6) - TROUBLESHOOTING.md"
   elif _hint_has 'Isaac Lab not (found|detected)'; then
     echo "Isaac Lab not found: export ISAACLAB_PATH=/path/to/IsaacLab (or SKIP_ISAAC=1)"
@@ -124,9 +140,11 @@ failure_hint() {
       isaac_*)
         # 02_isaaclab_validate.sh prints 'key error: ...' for a failed smoke run (taken from the smoke log)
         err="$(grep -aE '^ *key error: ' "$log" 2>/dev/null | tail -n1 | sed 's/^ *key error: //' | cut -c1-140)"
+        [ -z "$err" ] && err="$(grep -aE '\[FAIL\] ' "$log" 2>/dev/null | tail -n1 | sed 's/.*\[FAIL\][^ ]* *//' | cut -c1-140)"
         if [ "$wsl" = 1 ]; then echo "${err:+Isaac error: $err; }see the smoke log tail in the step log and docs/ISAAC_LAB.md (WSL2 is not officially supported by NVIDIA)"
         else echo "${err:+Isaac error: $err; }see the smoke log tail in the step log and docs/ISAAC_LAB.md"; fi ;;
-      *) echo "see the last 40 lines of the log" ;;
+      *) err="$(grep -aE '\[FAIL\] ' "$log" 2>/dev/null | tail -n1 | sed 's/.*\[FAIL\][^ ]* *//' | cut -c1-140)"
+         echo "${err:+the step stopped: $err; }see the last 40 lines of the log" ;;
     esac
   fi
 }

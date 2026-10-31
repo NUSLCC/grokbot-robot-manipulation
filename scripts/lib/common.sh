@@ -17,6 +17,18 @@ have() { command -v "$1" >/dev/null 2>&1; }
 RSP_EXIT_SKIP=77
 skip_exit() { warn "SKIP: $*"; exit "$RSP_EXIT_SKIP"; }
 
+# find_robomimic_ckpt ROOT [TASK] -> newest */models/*.pth under ROOT/TASK (any depth); falls back to anywhere
+# under ROOT. Empty output if none. robomimic layout: ROOT/<task>/<experiment>/<timestamp>/models/model_epoch_N.pth
+find_robomimic_ckpt() {
+  local root="$1" task="${2:-}" d c
+  for d in ${task:+"$root/$task"} "$root"; do
+    [ -d "$d" ] || continue
+    c="$(find "$d" -type f -path '*/models/*.pth' -printf '%T@ %p\n' 2>/dev/null | sort -nr | sed -n '1s/^[^ ]* //p')"
+    [ -n "$c" ] && { echo "$c"; return 0; }
+  done
+  return 0
+}
+
 # ver_ge A B  -> true if version A >= B
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | sed -n 1p)" = "$2" ]; }
 
