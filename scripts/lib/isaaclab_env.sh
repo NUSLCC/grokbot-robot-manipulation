@@ -132,3 +132,37 @@ isaaclab_wsl_note() {
   [ "${RSP_GPU_ARCH:-}" = blackwell ] && log "Blackwell GPU: Isaac Lab 3.0 ships torch 2.11 cu130 (has sm_120 kernels); the kit does not touch it."
   return 0
 }
+
+# _pin_ok VERSION SPEC -> true if VERSION satisfies SPEC (supports ==X, ~=X.Y.Z, >=X; enough for the Isaac Lab pins)
+_pin_ok() {
+  local v="$1" spec="$2" base
+  case "$v" in ""|None) return 1 ;; esac
+  case "$spec" in
+    "=="*) [ "$v" = "${spec#==}" ] ;;
+    "~="*) base="${spec#~=}"; ver_ge "$v" "$base" && case "$v" in "${base%.*}".*) true ;; *) false ;; esac ;;
+    ">="*) ver_ge "$v" "${spec#>=}" ;;
+    *) [ "$v" = "$spec" ] ;;
+  esac
+}
+# newton_pins_check ISAACLAB_VERSION ISAAC_PY NEWTON WARP MUJOCO MUJOCO_WARP NEWTON_USD_SCHEMAS
+#   -> one line "RESULT|detail" (PASS / WARN / INFO) for the 'Newton/Warp pins' row of 02_isaaclab_validate.sh.
+# Detect-only: prints the exact fix command, never changes the Isaac env.
+newton_pins_check() {
+  local il="$1" py="$2" bad=() n=0 name ver spec
+  case "$il" in 3.0|3.0.*) ;; *) echo "INFO|Isaac Lab '$il': pins only known for 3.0.x; not checked"; return 0 ;; esac
+  for name in newton warp-lang mujoco mujoco-warp newton-usd-schemas; do
+    n=$((n+1)); ver="${*:n+2:1}"
+    case "$name" in
+      newton) spec="$ISAACLAB30_NEWTON_PIN" ;; warp-lang) spec="$ISAACLAB30_WARP_PIN" ;;
+      mujoco) spec="$ISAACLAB30_MUJOCO_PIN" ;; mujoco-warp) spec="$ISAACLAB30_MUJOCO_WARP_PIN" ;;
+      newton-usd-schemas) spec="$ISAACLAB30_NEWTON_USD_SCHEMAS_PIN" ;;
+    esac
+    _pin_ok "$ver" "$spec" || bad+=("$name ${ver:-None} (needs $spec)")
+  done
+  if [ "${#bad[@]}" = 0 ]; then
+    echo "PASS|newton $3, warp-lang $4, mujoco $5, mujoco-warp $6 match Isaac Lab $il pins"
+  else
+    local IFS=';'
+    echo "WARN|${bad[*]} -> Isaac Lab $il Newton physics can fail (e.g. no attribute '_cloth_label'). Fix (changes the Isaac env, run it yourself): uv pip install --python ${py:-<ISAAC_PY>} \"newton[sim]${ISAACLAB30_NEWTON_PIN}\" \"mujoco${ISAACLAB30_MUJOCO_PIN}\" \"mujoco-warp${ISAACLAB30_MUJOCO_WARP_PIN}\" \"warp-lang${ISAACLAB30_WARP_PIN}\" \"newton-usd-schemas${ISAACLAB30_NEWTON_USD_SCHEMAS_PIN}\""
+  fi
+}

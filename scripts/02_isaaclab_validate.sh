@@ -49,7 +49,8 @@ def v(p):
     except Exception: return None
 info = {"python": sys.version.split()[0], "executable": sys.executable}
 for p in ["isaaclab","isaaclab-tasks","isaaclab-rl","isaaclab-mimic","isaacsim","isaacsim-kernel","torch","torchvision",
-          "warp-lang","transformers","numpy","rsl-rl-lib","skrl","stable-baselines3","rl-games","robomimic","newton","rlinf"]:
+          "warp-lang","transformers","numpy","rsl-rl-lib","skrl","stable-baselines3","rl-games","robomimic","newton","rlinf",
+          "mujoco","mujoco-warp","newton-usd-schemas"]:
     info[p] = v(p)
 try:
     import torch
@@ -83,6 +84,9 @@ PY
     else rec "Isaac Sim" WARN "no isaacsim wheel in env and no _isaac_sim / ~/isaacsim found; Newton-only tasks still work"; fi
     [ "$(j isaaclab-mimic)" != "None" ] && rec "isaaclab_mimic" PASS "$(j isaaclab-mimic)" || rec "isaaclab_mimic" INFO "not installed (only needed for Mimic workflow)"
     [ "$(j robomimic)" != "None" ] && rec "robomimic" PASS "$(j robomimic)" || rec "robomimic" INFO "not installed (Mimic BC training needs the 'mimic' extra)"
+    # Newton/Warp/MuJoCo pins (Isaac Lab 3.0 default physics = Newton); detect-only, prints the fix command
+    IFS='|' read -r PR PD <<<"$(newton_pins_check "$V" "${ISAAC_PY:-}" "$(j newton)" "$(j warp-lang)" "$(j mujoco)" "$(j mujoco-warp)" "$(j newton-usd-schemas)")"
+    rec "Newton/Warp pins" "$PR" "$PD"
     [ "$(j rsl-rl-lib)" != "None" ] && rec "rsl_rl" PASS "$(j rsl-rl-lib)" || rec "rsl_rl" WARN "rsl-rl-lib not found; smoke test uses rsl_rl"
   else
     rec "Python probe" FAIL "see $OUT/probe.err"; cat "$OUT/probe.err" | tail -n 20

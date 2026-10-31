@@ -46,6 +46,24 @@ for st in system_check base_deps isaac_validate act_aloha maniskill_ppo; do
   done
 done
 
+# --- Isaac Lab 3.0 Newton/Warp pins (detect-only check row) + the matching runner hint ---
+echo "AttributeError: 'ModelBuilder' object has no attribute '_cloth_label'" > "$L"
+for w in 0 1; do
+  check "Newton hint (wsl=$w)"      "$(hint_for "$w" isaac_validate "$L" 1)" "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command"
+done
+# shellcheck source=../scripts/lib/isaaclab_env.sh
+source "$K/scripts/lib/isaaclab_env.sh"; set +e
+PY=/home/u/IsaacLab/.venv/bin/python
+FIX="uv pip install --python $PY \"newton[sim]==1.6.1\" \"mujoco~=3.12.0\" \"mujoco-warp~=3.12.0\" \"warp-lang==1.17.0\" \"newton-usd-schemas>=0.5.0\""
+r="$(newton_pins_check 3.0.0 "$PY" 1.8.0.dev0 1.17.0 3.12.1 3.12.0 0.5.2)"
+check "pins: user's newton 1.8.0.dev0 -> WARN" "${r%%|*}" WARN
+check "pins: names newton"          "$(grep -cF 'newton 1.8.0.dev0 (needs ==1.6.1)' <<<"$r")" 1
+check "pins: exact fix command"     "$(grep -cF "$FIX" <<<"$r")" 1
+check "pins: matching -> PASS"      "$(newton_pins_check 3.0.0 "$PY" 1.6.1 1.17.0 3.12.0 3.12.2 0.5.0 | cut -d'|' -f1)" PASS
+check "pins: mujoco 3.13 -> WARN"   "$(newton_pins_check 3.0.0 "$PY" 1.6.1 1.17.0 3.13.0 3.12.0 0.5.0 | cut -d'|' -f1)" WARN
+check "pins: missing pkg -> WARN"   "$(newton_pins_check 3.0.0 "$PY" 1.6.1 None 3.12.0 3.12.0 0.5.0 | grep -c 'warp-lang None')" 1
+check "pins: other Isaac Lab -> INFO" "$(newton_pins_check 2.3.0 "$PY" 1.8.0 1.0 3.0 3.0 0.1 | cut -d'|' -f1)" INFO
+
 # --- apt source notes (one line per failed source; NO_PUBKEY from the real log) ---
 check "apt note: grok-bot repo"     "$(apt_repo_notes "$B")" "https://downloads.cursor.com/aptrepo grok-bot (NO_PUBKEY 42A1772E62E492D6)"
 printf 'Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease\nReading package lists...\n' > "$L"

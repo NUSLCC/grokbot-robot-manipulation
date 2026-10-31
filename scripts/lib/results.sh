@@ -67,7 +67,9 @@ failure_hint() {
     return 0
   fi
   body="$(_hint_body "$log")"
-  if _hint_has 'dpkg was interrupted'; then
+  if _hint_has "has no attribute '_cloth_label'"; then
+    echo "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command"
+  elif _hint_has 'dpkg was interrupted'; then
     echo "apt is broken: run sudo dpkg --configure -a, then rerun"
   elif _hint_has 'Sub-process /usr/bin/dpkg returned an error code'; then
     echo "a package failed to install/configure: run sudo dpkg --configure -a, read its error, then rerun"

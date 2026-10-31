@@ -73,9 +73,10 @@ done
 check "native: openpi eval SKIP"          "$(met openpi_pi05_libero_eval)" "needs openpi_install (SKIPPED)"
 check "native: maniskill_ppo SKIP"        "$(met maniskill_ppo)" "needs maniskill_install (SKIPPED)"
 check "native: isaac_rl SKIP"             "$(met isaac_rl_franka)" "needs isaac_validate (FAILED)"
-check "native: Isaac hint has real error" "$(hint isaac_validate)" \
-  "Isaac error: ValueError: simulated smoke failure for the dry run (fixture); see the smoke log tail in the step log and docs/ISAAC_LAB.md (rc=1)"
-check "native: smoke log tail in SUMMARY" "$(grep -c '^ValueError: simulated smoke failure' "$S")" 1
+check "native: Newton mismatch hint"     "$(hint isaac_validate)" \
+  "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command (rc=1)"
+check "native: smoke log tail in SUMMARY" "$(grep -c "^AttributeError: 'ModelBuilder' object has no attribute '_cloth_label'" "$S")" 1
+check "native: pins row + fix in SUMMARY" "$(grep -c '^Newton/Warp pins .*WARN.*uv pip install --python' "$S")" 1
 check "native: no WSL wording in hints"   "$(grep -E '^- Hint:' "$S" | grep -ciE 'wsl')" 0
 check "native: no WSL wording on console" "$(grep -E 'hint:|WSL2' "$TMP/out4.txt" | grep -ciE 'wsl2|wslconfig')" 0
 
@@ -84,7 +85,7 @@ rm -rf "$RUNS_DIR"
 RSP_FORCE_WSL=1 RSP_DRY_RUN_RC="base_deps=100 isaac_validate=1" bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
 S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
 check "wsl: dpkg hint same wording"       "$(hint base_deps)" "apt is broken: run sudo dpkg --configure -a, then rerun (rc=100)"
-check "wsl: Isaac hint mentions WSL2"     "$(hint isaac_validate | grep -c 'WSL2 is not officially supported')" 1
+check "wsl: Newton hint, no WSL blame"   "$(hint isaac_validate | cut -c1-24)" "Newton version mismatch "
 
 # User-chosen skips do NOT block dependents: SKIP_INSTALL=1 still runs the train/eval steps.
 rm -rf "$RUNS_DIR"

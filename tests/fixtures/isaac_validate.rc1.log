@@ -9,6 +9,7 @@ CUDA from Isaac env                PASS  NVIDIA GeForce RTX 3090, 23.6 GiB, matm
 Isaac Sim (pip wheel)              PASS  isaacsim 6.2.0.0
 isaaclab_mimic                     INFO  not installed (only needed for Mimic workflow)
 robomimic                          INFO  not installed (Mimic BC training needs the 'mimic' extra)
+Newton/Warp pins                   WARN  newton 1.8.0.dev0 (needs ==1.6.1) -> Isaac Lab 3.0.0 Newton physics can fail (e.g. no attribute '_cloth_label'). Fix (changes the Isaac env, run it yourself): uv pip install --python /home/u/IsaacLab/.venv/bin/python "newton[sim]==1.6.1" "mujoco~=3.12.0" "mujoco-warp~=3.12.0" "warp-lang==1.17.0" "newton-usd-schemas>=0.5.0"
 rsl_rl                             PASS  5.5.1
 Driver                             PASS  595.99.02 >= 595.58.03 (Isaac Sim 6.2 tested)
 list_envs                          PASS  58 manipulation task IDs -> @RUNTMP@/manipulation_tasks.txt
@@ -25,5 +26,7 @@ Traceback (most recent call last):
     main()
   File "/home/u/IsaacLab/scripts/reinforcement_learning/rsl_rl/train.py", line 61, in main
     env = gym.make(args_cli.task, cfg=env_cfg)
-ValueError: simulated smoke failure for the dry run (fixture)
-key error: ValueError: simulated smoke failure for the dry run (fixture)
+  File "/home/u/IsaacLab/source/isaaclab_newton/isaaclab_newton/cloner/newton_replicate.py", line 120, in newton_replicate
+    builder.add_builder(proto, xform=xform)
+AttributeError: 'ModelBuilder' object has no attribute '_cloth_label'
+key error: AttributeError: 'ModelBuilder' object has no attribute '_cloth_label'

@@ -14,6 +14,10 @@ This page lists common issues and fixes observed while hardening the kit. See al
   - These are printed as one "note: apt source could not be refreshed and was ignored" line per source and never fail the install: every package the kit needs comes from Ubuntu's own archive. Fix the vendor's key separately if you need that repo's updates.
 - Dependent steps in run_wsl_headless.sh
   - A step whose dependency FAILED, or was SKIPPED because it could not run, is SKIP ("needs X (FAILED)" / "needs X (SKIPPED)"). A dependency skipped on purpose (SKIP_INSTALL=1, SKIP_STEPS, ONLY_STEPS) is assumed already installed, so its dependents still run.
+- Isaac Lab 3.0 smoke fails: AttributeError: 'ModelBuilder' object has no attribute '_cloth_label'
+  - Cause: Newton version mismatch. The Isaac Lab env has a newer newton (seen: 1.8.0.dev0) than Isaac Lab v3.0.0 pins in its pyproject.toml: newton[sim]==1.6.1, warp-lang==1.17.0, mujoco~=3.12.0, mujoco-warp~=3.12.0, newton-usd-schemas>=0.5.0. Isaac Lab 3.0's 'default' physics is Newton, so every default smoke/RL run fails.
+  - Check: 02_isaaclab_validate.sh prints a 'Newton/Warp pins' row (detect-only; the kit never changes the Isaac env).
+  - Fix (run it yourself; it changes the Isaac env): `uv pip install --python <ISAAC_PY> "newton[sim]==1.6.1" "mujoco~=3.12.0" "mujoco-warp~=3.12.0" "warp-lang==1.17.0" "newton-usd-schemas>=0.5.0"` (ISAAC_PY is shown by 00_check_system.sh, e.g. ~/IsaacLab/.venv/bin/python). Then rerun `ONLY_STEPS="isaac_validate isaac_physx_smoke isaac_rl_franka" SKIP_INSTALL=1 bash scripts/run_wsl_headless.sh`.
 - PYTHONPATH/LD_LIBRARY_PATH leaks from Isaac scripts
   - Symptom: Other envs break after using Isaac; import conflicts, missing GL libs.
   - Fix: Ensure your shell does not source setup_conda_env.sh or setup_python_env.sh automatically. The kit strips these via clean_python_env(). Open a fresh shell.
