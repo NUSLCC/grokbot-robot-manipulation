@@ -108,6 +108,16 @@ S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
 check "renamed flag hint"   "$(hint act_aloha | cut -c1-55)" "the tool's version does not accept --eval_freq=2000 (fl"
 check "LIBERO prompt hint"  "$(hint smolvla_libero_eval | cut -c1-36)" "LIBERO asked its first-run question "
 
+# The rerun of only the failed LeRobot steps: they run although their install dependency is skipped.
+rm -rf "$RUNS_DIR"
+ONLY_STEPS="act_aloha diffusion_pusht smolvla_libero_eval" bash "$K/scripts/run_wsl_headless.sh" > "$TMP/only.txt" 2>&1; rc=$?
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "ONLY_STEPS rerun: exit 0"            "$rc" 0
+check "ONLY_STEPS rerun: act_aloha runs"    "$(row act_aloha)" PASS
+check "ONLY_STEPS rerun: smolvla runs"      "$(row smolvla_libero_eval)" PASS
+check "ONLY_STEPS rerun: install skipped"   "$(met lerobot_install)" "not in ONLY_STEPS"
+check "ONLY_STEPS rerun: no sudo prompt"    "$(grep -c 'asking once now' "$TMP/only.txt")" 0
+
 # Unit tests for hints / apt / dpkg / declared dependencies (run from here so the existing CI step covers them).
 if bash "$T/test_hints_apt.sh" > "$TMP/hints.txt" 2>&1; then echo "ok   - tests/test_hints_apt.sh ($(grep -c '^ok' "$TMP/hints.txt") checks)"
 else grep -v '^ok' "$TMP/hints.txt"; echo "FAIL - tests/test_hints_apt.sh"; nfail=$((nfail+1)); fi

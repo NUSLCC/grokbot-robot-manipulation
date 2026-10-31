@@ -89,9 +89,11 @@ PYTHONPATH="$SITE" python3 "$K/scripts/lib/libero_config.py" "$C" >/dev/null
 check "stale config rewritten"   "$(sed -n 's/^benchmark_root: "\(.*\)"$/\1/p' "$C/config.yaml")" "$SITE/libero/libero"
 check "stale config backed up"   "$([ -s "$C/config.yaml.bak" ] && echo y)" y
 check "no libero: writer exits 3" "$(PYTHONPATH="$TMP/empty" python3 "$K/scripts/lib/libero_config.py" "$TMP/x" 2>/dev/null; echo $?)" 3
-check "every LIBERO eval writes the config" \
-  "$(grep -L 'libero_config ' "$K"/scripts/eval/*libero*.sh | wc -l)" 0
-check "no install pipes 'N' into LIBERO any more" "$(grep -l "printf 'N" "$K"/scripts/*.sh | wc -l)" 0
+# openpi keeps its own (working) path: 11_install_openpi.sh answers N once, which writes ~/.libero/config.yaml.
+check "every other LIBERO eval writes the config" \
+  "$(grep -L 'libero_config ' "$K"/scripts/eval/*libero*.sh | grep -v openpi_ | wc -l)" 0
+check "LeRobot LIBERO eval writes it itself (rerun without install works)" \
+  "$(grep -c '^libero_config "$ENV/bin/python" lerobot' "$K/scripts/eval/lerobot_smolvla_libero.sh")" 1
 
 # --- 4. hints, from the real logs of the user's run ---
 check "hint: renamed flag" "$(failure_hint act_aloha "$T/fixtures/act_aloha.rc2.log" 2)" \

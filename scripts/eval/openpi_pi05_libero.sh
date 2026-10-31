@@ -12,7 +12,6 @@ OUT="$RSP_LOGS/eval_openpi_libero_$(stamp)"; mkdir -p "$OUT"
 cd "$SRC"
 UVRUN=(uv run); [ -f .rsp_no_sync ] && UVRUN=(uv run --no-sync)   # see 11_install_openpi.sh OPENPI_TORCH_CU128
 select_mujoco_gl "$SRC/examples/libero/.venv/bin/python"          # EGL, or OSMesa fallback on WSL2
-libero_config "$SRC/examples/libero/.venv/bin/python" openpi "$SRC/third_party/libero"   # no first-import prompt
 log "Starting policy server (first run downloads the checkpoint)"
 # shellcheck disable=SC2086
 "${UVRUN[@]}" scripts/serve_policy.py --env LIBERO --port "$PORT" $SERVER_ARGS > "$OUT/server.log" 2>&1 &
