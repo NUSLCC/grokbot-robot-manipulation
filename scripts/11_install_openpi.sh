@@ -48,9 +48,10 @@ uv pip sync --python examples/libero/.venv/bin/python examples/libero/requiremen
   --extra-index-url https://download.pytorch.org/whl/cu113 --index-strategy=unsafe-best-match
 uv pip install --python examples/libero/.venv/bin/python -e packages/openpi-client
 uv pip install --python examples/libero/.venv/bin/python -e third_party/libero
-# LIBERO asks interactively for a dataset path on first import; answer "N" (use defaults) once.
+# LIBERO asks interactively for a dataset path on first import; write its default config instead (no prompt).
 select_mujoco_gl "$SRC/examples/libero/.venv/bin/python"
-printf 'N\n' | PYTHONPATH="$SRC/third_party/libero" examples/libero/.venv/bin/python -c "from libero.libero import benchmark; print('LIBERO ok')" \
+libero_config "$SRC/examples/libero/.venv/bin/python" openpi "$SRC/third_party/libero"
+PYTHONPATH="$SRC/third_party/libero" examples/libero/.venv/bin/python -c "from libero.libero import benchmark; print('LIBERO ok')" </dev/null \
   || warn "LIBERO first import failed; try MUJOCO_GL=glx or osmesa (see README troubleshooting)"
 
 log "Server sanity check"

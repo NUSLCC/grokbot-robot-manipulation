@@ -8,6 +8,7 @@ source "$(dirname "$0")/../lib/common.sh"; clean_python_env
 ENV="$RSP_ENVS/lerobot"; [ -x "$ENV/bin/lerobot-train" ] || die "Run scripts/10_install_lerobot.sh first"
 OUT="$RSP_CKPT/pi05_libero_expert_$(stamp)"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+lerobot_train_compat "$ENV/bin/lerobot-train"   # flag names differ across LeRobot releases
 gpu_monitor_start "$OUT.gpu.csv"
 "$ENV/bin/lerobot-train" \
   --dataset.repo_id=lerobot/libero --policy.type=pi05 --policy.pretrained_path=lerobot/pi05_libero_base \
@@ -16,5 +17,5 @@ gpu_monitor_start "$OUT.gpu.csv"
   --policy.freeze_vision_encoder=true --policy.train_expert_only=true \
   --policy.gradient_checkpointing=true --policy.dtype=bfloat16 --policy.device=cuda --policy.push_to_hub=false \
   --output_dir="$OUT" --job_name=pi05_libero_expert --batch_size="$BATCH" --num_workers=8 \
-  --steps="$STEPS" --save_freq=1000 --seed=1000 --wandb.enable=false
+  --steps="$STEPS" --save_freq=1000 --seed=1000 "${LR_TRACKER_OFF[@]}"
 echo "Peak GPU memory: $(gpu_monitor_stop) MiB"; ok "Checkpoints: $OUT"

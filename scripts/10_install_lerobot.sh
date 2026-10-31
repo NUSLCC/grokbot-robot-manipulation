@@ -26,6 +26,8 @@ uv pip install --python "$PY" --torch-backend "$LEROBOT_TORCH_BACKEND" -e "${SRC
 
 log "Verifying"
 select_mujoco_gl "$PY"
+# LIBERO asks a Y/N question on first import unless its config exists: write it now (defaults, no prompt).
+libero_config "$PY" lerobot
 "$PY" - <<'PY'
 import importlib.metadata as m, os, torch
 print("lerobot", m.version("lerobot"), "| torch", torch.__version__, "cuda", torch.version.cuda, "| gpu ok:", torch.cuda.is_available(), "| MUJOCO_GL", os.environ.get("MUJOCO_GL"))
@@ -47,6 +49,8 @@ except Exception as e:
     print("LIBERO import FAILED (check EGL / hf-libero):", e)
 PY
 "$ENV/bin/lerobot-info" || true
+# Which flag spellings this LeRobot uses (the train scripts detect them the same way at run time)
+lerobot_train_compat "$ENV/bin/lerobot-train"
 ok "LeRobot env ready: source $ENV/bin/activate"
 # Gated models notice
 hf_check_access model google/paligemma-3b-pt-224 >/dev/null 2>&1 || true

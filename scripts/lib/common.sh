@@ -454,3 +454,50 @@ dpkg_repair_if_interrupted() {
     return 1
   fi
 }
+
+# ---------------------------------------------------------------------------------------------
+# LIBERO first-import prompt. LIBERO's libero/libero/__init__.py calls input() ("custom dataset path? (Y/N)") when
+# $LIBERO_CONFIG_PATH/config.yaml (default ~/.libero/config.yaml) is missing; headless, that is
+# "EOFError: EOF when reading a line". libero_config writes the config LIBERO would write for "N" (its defaults)
+# without importing libero.libero, and exports LIBERO_CONFIG_PATH. Each env gets its own config dir because
+# each env has its own LIBERO copy (hf-libero wheel in LeRobot, openpi's third_party/libero, OFT's clone, ...);
+# a shared ~/.libero would point one env at another env's files.
+#   libero_config PY NAME [EXTRA_PYTHONPATH]     config dir: $LIBERO_CONFIG_PATH if set, else $RSP_HOME/config/libero/NAME
+# Never fatal: on failure it warns (the step then fails with the EOFError hint).
+# ---------------------------------------------------------------------------------------------
+libero_config() {
+  local py="$1" name="$2" pp="${3:-}" dir
+  dir="${LIBERO_CONFIG_PATH:-$RSP_HOME/config/libero/$name}"
+  if PYTHONPATH="$pp" "$py" "$_RSP_LIB_DIR/libero_config.py" "$dir"; then
+    export LIBERO_CONFIG_PATH="$dir"
+  else
+    warn "could not write the LIBERO config for $name ($py); LIBERO may stop at its first-import question"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------------
+# LeRobot CLI compatibility. lerobot-train flag names changed across releases:
+#   <= v0.5.x  --eval_freq          v0.6.0+ --env_eval_freq     (renamed in TrainPipelineConfig)
+#   <= v0.6.x  --wandb.enable       main after v0.6.1: --trackio.enable  (wandb replaced by Trackio)
+# lerobot_train_compat BIN reads `BIN --help` once and sets:
+#   LR_EVAL_FREQ_FLAG   the eval-frequency flag (without '=')
+#   LR_TRACKER_OFF      array: the flag that turns experiment tracking off (empty if the CLI has neither)
+# Test hook: LEROBOT_TRAIN_HELP_FILE=path uses that file instead of running BIN --help.
+# ---------------------------------------------------------------------------------------------
+_lr_help_has() { grep -qE -- "--$1([^a-zA-Z0-9_.]|\$)" <<<"$2"; }
+lerobot_train_compat() {
+  local bin="$1" help=""
+  if [ -n "${LEROBOT_TRAIN_HELP_FILE:-}" ]; then help="$(cat "$LEROBOT_TRAIN_HELP_FILE")"
+  else help="$(timeout 300 "$bin" --help 2>&1 || true)"; fi
+  if _lr_help_has env_eval_freq "$help"; then LR_EVAL_FREQ_FLAG=--env_eval_freq
+  elif _lr_help_has eval_freq "$help"; then LR_EVAL_FREQ_FLAG=--eval_freq
+  else
+    LR_EVAL_FREQ_FLAG=--env_eval_freq
+    warn "lerobot-train --help lists neither --env_eval_freq nor --eval_freq; using --env_eval_freq (LEROBOT_REF=$LEROBOT_REF)"
+  fi
+  if _lr_help_has wandb.enable "$help"; then LR_TRACKER_OFF=(--wandb.enable=false)
+  elif _lr_help_has trackio.enable "$help"; then LR_TRACKER_OFF=(--trackio.enable=false)
+  else LR_TRACKER_OFF=(); fi
+  log "lerobot-train flags: eval every N steps = $LR_EVAL_FREQ_FLAG, tracking off = ${LR_TRACKER_OFF[*]:-(none)}"
+}

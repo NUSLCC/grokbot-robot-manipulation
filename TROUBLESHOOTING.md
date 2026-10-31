@@ -67,3 +67,16 @@ WSL2 (Windows 11, Ubuntu 24.04) - see docs/WSL2.md
   - Fix: Plug in the charger, set Windows power mode to "Best performance", and keep the laptop cool. Sustained clocks on a laptop GPU are lower than on a desktop card.
 - Isaac Lab 3.0: "unrecognized arguments: --headless"
   - Fix: Isaac Lab 3.0 removed --headless. Use `--viz none` (the kit passes ISAACLAB_HEADLESS_FLAGS="--viz none --livestream 0").
+
+## LeRobot: `lerobot-train: error: unrecognized arguments: --eval_freq=...`
+LeRobot renamed flags between releases: `--eval_freq` became `--env_eval_freq` in v0.6.0, and on `main` after v0.6.1
+`--wandb.*` became `--trackio.*`. The train scripts now read `lerobot-train --help` and pass the spelling your
+installed LeRobot accepts (`lerobot-train flags: ...` line in the step log). The kit pins `LEROBOT_REF=v0.6.1`
+(scripts/lib/versions.env); `LEROBOT_REF=main` also works.
+
+## LIBERO: `EOFError: EOF when reading a line` (libero/libero/__init__.py)
+On first import LIBERO asks "Do you want to specify a custom path for the dataset folder? (Y/N)" if its
+`config.yaml` is missing; headless steps have no keyboard, so `input()` fails. The kit now writes LIBERO's default
+config (what answering N writes) per env, under `$RSP_HOME/config/libero/<env>/config.yaml`, and exports
+`LIBERO_CONFIG_PATH` (install steps and every LIBERO eval). To use your own config, export `LIBERO_CONFIG_PATH`.
+Any other `EOFError` in a step log means some tool asked an interactive question; the prompt is just above it.

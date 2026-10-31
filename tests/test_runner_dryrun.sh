@@ -101,9 +101,19 @@ SKIP_ISAAC=1 RSP_DRY_RUN_RC="lerobot_install=77" bash "$K/scripts/run_wsl_headle
 S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
 check "rc77 install: act_aloha SKIP"      "$(met act_aloha)" "needs lerobot_install (SKIPPED)"
 
+# The user's real LeRobot failures (renamed --eval_freq, LIBERO first-run prompt) replayed: hints name the cause.
+rm -rf "$RUNS_DIR"
+RSP_FORCE_WSL=0 SKIP_ISAAC=1 RSP_DRY_RUN_RC="act_aloha=2 smolvla_libero_eval=1" bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "renamed flag hint"   "$(hint act_aloha | cut -c1-55)" "the tool's version does not accept --eval_freq=2000 (fl"
+check "LIBERO prompt hint"  "$(hint smolvla_libero_eval | cut -c1-36)" "LIBERO asked its first-run question "
+
 # Unit tests for hints / apt / dpkg / declared dependencies (run from here so the existing CI step covers them).
 if bash "$T/test_hints_apt.sh" > "$TMP/hints.txt" 2>&1; then echo "ok   - tests/test_hints_apt.sh ($(grep -c '^ok' "$TMP/hints.txt") checks)"
 else grep -v '^ok' "$TMP/hints.txt"; echo "FAIL - tests/test_hints_apt.sh"; nfail=$((nfail+1)); fi
+
+if bash "$T/test_lerobot_libero.sh" > "$TMP/lr.txt" 2>&1; then echo "ok   - tests/test_lerobot_libero.sh ($(grep -c '^ok' "$TMP/lr.txt") checks)"
+else grep -v '^ok' "$TMP/lr.txt"; echo "FAIL - tests/test_lerobot_libero.sh"; nfail=$((nfail+1)); fi
 
 echo; [ "$nfail" = 0 ] && echo "ALL PASS" || echo "$nfail FAILED"
 exit "$nfail"

@@ -21,6 +21,7 @@ git_sync https://github.com/moojink/openvla-oft.git "$W/openvla-oft" "$OFT_REF"
 git_sync https://github.com/Lifelong-Robot-Learning/LIBERO.git "$W/LIBERO" "$LIBERO_REF"
 "$PY" -m pip install -e "$W/LIBERO"
 "$PY" -m pip install -r "$W/openvla-oft/experiments/robot/libero/libero_requirements.txt"
+libero_config "$PY" simplevla   # writes LIBERO's default config; export LIBERO_CONFIG_PATH=$RSP_HOME/config/libero/simplevla before its scripts
 git_sync https://github.com/PRIME-RL/SimpleVLA-RL.git "$W/SimpleVLA-RL" "$SIMPLEVLA_REF"
 "$PY" -c "import torch, verl; print('torch', torch.__version__, '| verl ok')"
 ok "SimpleVLA-RL workspace: $W (edit examples/run_openvla_oft_rl_libero.sh: NUM_GPUS=1, SFT_MODEL_PATH, CKPT_PATH; set trainer.val_only=True for eval)"

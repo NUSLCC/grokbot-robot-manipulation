@@ -69,6 +69,12 @@ failure_hint() {
   body="$(_hint_body "$log")"
   if _hint_has "has no attribute '_cloth_label'"; then
     echo "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command"
+  elif _hint_has 'EOFError: EOF when reading a line'; then
+    if _hint_has 'libero'; then echo "LIBERO asked its first-run question (no config.yaml): git pull the kit (it writes LIBERO's default config itself) and rerun; see the libero_config line in the log"
+    else echo "a tool asked an interactive question, but headless steps have no keyboard: see the prompt just above the EOFError in the log"; fi
+  elif _hint_has 'error: unrecognized arguments: '; then
+    err="$(grep -aoE 'error: unrecognized arguments: .*' "$log" | tail -n1 | sed 's/^error: unrecognized arguments: //' | cut -c1-80)"
+    echo "the tool's version does not accept ${err:-a flag the kit passes} (flag renamed upstream): git pull the kit, or check the pinned ref in scripts/lib/versions.env"
   elif _hint_has 'dpkg was interrupted'; then
     echo "apt is broken: run sudo dpkg --configure -a, then rerun"
   elif _hint_has 'Sub-process /usr/bin/dpkg returned an error code'; then
