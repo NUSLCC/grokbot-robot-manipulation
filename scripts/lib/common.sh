@@ -483,6 +483,11 @@ libero_config() {
 # lerobot_train_compat BIN reads `BIN --help` once and sets:
 #   LR_EVAL_FREQ_FLAG   the eval-frequency flag (without '=')
 #   LR_TRACKER_OFF      array: the flag that turns experiment tracking off (empty if the CLI has neither)
+#   LR_EVAL_SYNC        array: --eval.use_async_envs=false when the CLI has it (empty otherwise). LeRobot v0.6.1 (and
+#                       main as of 2026-10) builds async eval envs with multiprocessing "forkserver"; the fresh worker
+#                       processes never import gym_aloha / gym_pusht, so gym.make fails there with
+#                       "NamespaceNotFound: Namespace gym_pusht not found" even though the package IS installed
+#                       (huggingface/lerobot#4931). In-process (sync) envs do not have the bug.
 # Test hook: LEROBOT_TRAIN_HELP_FILE=path uses that file instead of running BIN --help.
 # ---------------------------------------------------------------------------------------------
 _lr_help_has() { grep -qE -- "--$1([^a-zA-Z0-9_.]|\$)" <<<"$2"; }
@@ -499,5 +504,44 @@ lerobot_train_compat() {
   if _lr_help_has wandb.enable "$help"; then LR_TRACKER_OFF=(--wandb.enable=false)
   elif _lr_help_has trackio.enable "$help"; then LR_TRACKER_OFF=(--trackio.enable=false)
   else LR_TRACKER_OFF=(); fi
-  log "lerobot-train flags: eval every N steps = $LR_EVAL_FREQ_FLAG, tracking off = ${LR_TRACKER_OFF[*]:-(none)}"
+  if [ "${LEROBOT_ASYNC_EVAL:-0}" != 1 ] && _lr_help_has eval.use_async_envs "$help"; then LR_EVAL_SYNC=(--eval.use_async_envs=false)
+  else LR_EVAL_SYNC=(); fi
+  log "lerobot-train flags: eval every N steps = $LR_EVAL_FREQ_FLAG, tracking off = ${LR_TRACKER_OFF[*]:-(none)}, sim eval envs = ${LR_EVAL_SYNC[*]:-(LeRobot default)}"
+}
+
+# ---------------------------------------------------------------------------------------------
+# lerobot_sim_ensure PY ENV_TYPE [TASK]: make sure the eval simulator gym_<ENV_TYPE> (aloha | pusht) imports,
+# builds and renders headless BEFORE a train script spends minutes training. If the package is missing it installs
+# LeRobot's matching extra into the env (logged; LEROBOT_AUTO_EXTRAS=0 turns that off and fails fast instead).
+# Test hooks: RSP_SIM_PROBE=path replaces lib/lerobot_sim_probe.py; RSP_UV=cmd replaces uv.
+# ---------------------------------------------------------------------------------------------
+lerobot_sim_ensure() {
+  local py="$1" type="$2" task="${3:-}" rc=0 out probe="${RSP_SIM_PROBE:-$_RSP_LIB_DIR/lerobot_sim_probe.py}"
+  out="$(timeout 300 "$py" "$probe" "$type" "$task" 2>&1)" || rc=$?
+  if [ "$rc" = 3 ]; then
+    local src="$RSP_SRC/lerobot"
+    if [ "${LEROBOT_AUTO_EXTRAS:-1}" = 0 ] || [ ! -d "$src" ]; then
+      die "gym_$type (LeRobot's '$type' simulator) is not installed in $(dirname "$(dirname "$py")"): run scripts/10_install_lerobot.sh (it installs the aloha/pusht extras), then rerun"
+    fi
+    warn "gym_$type is not installed; adding LeRobot's '$type' extra now: uv pip install -e \"${src}[${type}]\""
+    ${RSP_UV:-uv} pip install --python "$py" --torch-backend "$LEROBOT_TORCH_BACKEND" -e "${src}[${type}]" \
+      || die "installing lerobot[$type] failed: run scripts/10_install_lerobot.sh and check its log"
+    rc=0; out="$(timeout 300 "$py" "$probe" "$type" "$task" 2>&1)" || rc=$?
+  fi
+  case "$rc" in
+    0) ok "$(grep -a '^sim probe ok' <<<"$out" | tail -n1)" ;;
+    3) die "gym_$type still not importable after installing lerobot[$type]: $(tail -n1 <<<"$out")" ;;
+    *) local why; why="$(grep -a '^sim probe' <<<"$out" | tail -n1)"; [ -n "$why" ] || why="$(tail -n1 <<<"$out")"
+       [ "$type" = aloha ] && why="$why (MuJoCo rendering: try MUJOCO_GL=osmesa; TROUBLESHOOTING.md)"
+       die "gym_$type eval env does not work headless (rc=$rc): $why" ;;
+  esac
+}
+
+# lerobot_latest_ckpt PREFIX -> newest $RSP_CKPT/PREFIX_*/checkpoints/last/pretrained_model (empty if none)
+lerobot_latest_ckpt() {
+  local d best=""
+  for d in "$RSP_CKPT/$1"_*/checkpoints/last/pretrained_model; do
+    [ -f "$d/config.json" ] && best="$d"   # glob sorts by name = by timestamp
+  done
+  echo "$best"
 }

@@ -38,6 +38,12 @@ done
 echo "fake lerobot-train ok: $*"
 FAKE
 chmod +x "$ENVD/lerobot-train"; ln -sf "$(command -v python3)" "$ENVD/python"
+# the ALOHA / PushT sims are not installed here: stub the pre-training sim check (tests/test_lerobot_sims.sh covers it)
+cat > "$TMP/stub_probe.py" <<'PYF'
+import sys
+print("sim probe ok: gym_" + sys.argv[1] + "/stub render (1, 1, 3)")
+PYF
+export RSP_SIM_PROBE="$TMP/stub_probe.py"
 for h in v0.6.1 main-3f797de5 v0.5; do
   for s in lerobot_act_aloha lerobot_diffusion_pusht lerobot_smolvla_libero lerobot_pi05_libero_expert_only; do
     out="$(FAKE_HELP="$H/train_help.$h.txt" STEPS=10 EVAL_FREQ=5 N_EVAL=1 bash "$K/scripts/train/$s.sh" 2>&1)"; rc=$?

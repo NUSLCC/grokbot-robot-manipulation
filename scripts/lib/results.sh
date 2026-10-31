@@ -72,6 +72,15 @@ failure_hint() {
   elif _hint_has 'EOFError: EOF when reading a line'; then
     if _hint_has 'libero'; then echo "LIBERO asked its first-run question (no config.yaml): git pull the kit (it writes LIBERO's default config itself) and rerun; see the libero_config line in the log"
     else echo "a tool asked an interactive question, but headless steps have no keyboard: see the prompt just above the EOFError in the log"; fi
+  elif _hint_has "NamespaceNotFound: Namespace gym_[a-z0-9_]+ not found|Package 'gym_[a-z0-9_]+' required for env|No module named 'gym_(aloha|pusht|xarm)'|gym_(aloha|pusht|xarm) is not installed"; then
+    local sim; sim="$(grep -aoE "Namespace gym_[a-z0-9_]+ not found|Package 'gym_[a-z0-9_]+'|No module named 'gym_[a-z0-9_]+'|gym_[a-z0-9_]+ is not installed" <<<"$body" | tail -n1 | grep -oE 'gym_[a-z0-9_]+' | head -n1)"
+    if _hint_has 'NamespaceNotFound' && _hint_has '_async_worker|async_vector_env|vector/utils/misc\.py'; then
+      echo "$sim was not found inside LeRobot's eval worker processes (LeRobot async-env bug lerobot#4931; the package is probably installed): git pull the kit (it runs the eval in-process and checks $sim before training). The checkpoint was saved: EVAL_ONLY=1 reruns just the eval"
+    else
+      echo "the $sim simulator isn't installed; run scripts/10_install_lerobot.sh (it adds the aloha/pusht extras)"
+    fi
+  elif _hint_has 'gym_[a-z0-9_]+ eval env does not work headless'; then
+    echo "$(grep -aoE 'gym_[a-z0-9_]+ eval env does not work headless' <<<"$body" | tail -n1): see the 'sim probe' line in the log (ALOHA: MUJOCO_GL=osmesa; PushT: SDL_VIDEODRIVER=dummy)"
   elif _hint_has 'error: unrecognized arguments: '; then
     err="$(grep -aoE 'error: unrecognized arguments: .*' "$log" | tail -n1 | sed 's/^error: unrecognized arguments: //' | cut -c1-80)"
     echo "the tool's version does not accept ${err:-a flag the kit passes} (flag renamed upstream): git pull the kit, or check the pinned ref in scripts/lib/versions.env"

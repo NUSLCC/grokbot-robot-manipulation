@@ -80,3 +80,30 @@ On first import LIBERO asks "Do you want to specify a custom path for the datase
 config (what answering N writes) per env, under `$RSP_HOME/config/libero/<env>/config.yaml`, and exports
 `LIBERO_CONFIG_PATH` (install steps and every LIBERO eval). To use your own config, export `LIBERO_CONFIG_PATH`.
 Any other `EOFError` in a step log means some tool asked an interactive question; the prompt is just above it.
+
+## LeRobot eval: `NamespaceNotFound: Namespace gym_aloha not found` / `gym_pusht not found` after training
+Training finished, then the sim eval failed while building its envs. In LeRobot v0.6.1 (and `main` as of 2026-10)
+this is usually NOT a missing package: with `eval.batch_size > 1` LeRobot builds an async vector env with
+multiprocessing "forkserver", and those fresh worker processes never import `gym_aloha` / `gym_pusht`, so
+`gym.make` cannot find the namespace (upstream issue huggingface/lerobot#4931; the traceback goes through
+`gymnasium/vector/utils/misc.py` / `_async_worker`). The kit now:
+- runs LeRobot's sim evals in-process (`--eval.use_async_envs=false`; `LEROBOT_ASYNC_EVAL=1` restores LeRobot's default),
+- checks before training that the sim imports, builds and renders headless (`sim probe ok: ...` line in the step log),
+  and installs a missing `aloha` / `pusht` extra on the spot (`LEROBOT_AUTO_EXTRAS=0` makes it fail fast instead),
+- verifies both sims in `scripts/10_install_lerobot.sh` (rerunning it only adds what is missing).
+
+The checkpoint is saved before the eval, so a finished training does not need to be redone:
+`EVAL_ONLY=1 bash scripts/train/lerobot_act_aloha.sh` (or `lerobot_diffusion_pusht.sh`) evaluates the newest
+`$RSP_HOME/checkpoints/<name>_*/checkpoints/last/pretrained_model` (or `CKPT=<that dir>`). Through the runner:
+`EVAL_ONLY=1 ONLY_STEPS="act_aloha diffusion_pusht" bash scripts/run_wsl_headless.sh`.
+
+Headless rendering: ALOHA renders with MuJoCo (`MUJOCO_GL=egl`, OSMesa fallback chosen automatically on WSL2);
+PushT renders with pygame (`SDL_VIDEODRIVER=dummy`, set by the runner and the script).
+
+GPU memory of `diffusion_pusht`: the step's GPU number is the whole card's `memory.used`, and the user's 22 GB peak
+came from training (the eval had not started). The model is 263M parameters (~1 GB fp32; ~4 GB with grads + Adam),
+and forward+backward activations at batch 32 measured under 1 GB on CPU, so most of that peak is PyTorch's cached
+memory and cuDNN autotune workspaces (LeRobot sets `cudnn.benchmark=True`), not a hard requirement: cuDNN picks
+algorithms that fit the free memory. The diffusion script sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+(if unset) to keep that cache compact. If a shared 24 GB card still runs out: `BATCH=16`, or add
+`--cudnn_deterministic=true` by hand (slower).

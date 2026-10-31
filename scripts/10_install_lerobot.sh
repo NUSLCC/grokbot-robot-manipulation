@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 10_install_lerobot.sh - LeRobot (ACT, Diffusion Policy, SmolVLA, pi0/pi0.5 ports) + LIBERO/ALOHA/PushT sims.
 # Env: $RSP_HOME/envs/lerobot (uv venv, Python 3.12, torch from the $TORCH_CUDA index - cu128 by default,
-# which also covers Blackwell / RTX 5090). Idempotent.
+# which also covers Blackwell / RTX 5090). Idempotent: rerunning on an existing env only adds what is missing
+# (e.g. the aloha/pusht sim extras), it does not rebuild the env or re-download torch.
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 clean_python_env; ensure_uv
@@ -39,7 +40,7 @@ if torch.cuda.is_available():
         print("WARNING: this torch build has no kernels for", f"sm_{cap[0]}{cap[1]}")
     (torch.ones(8, device="cuda") * 2).sum().item()
     print("cuda kernel launch ok")
-for mod in ["lerobot.policies", "gym_pusht", "gym_aloha"]:
+for mod in ["lerobot.policies"]:
     try: __import__(mod); print("import ok:", mod)
     except Exception as e: print("import FAILED:", mod, e)
 try:
@@ -48,6 +49,18 @@ try:
 except Exception as e:
     print("LIBERO import FAILED (check EGL / hf-libero):", e)
 PY
+# The ACT / Diffusion evals need the ALOHA (MuJoCo) and PushT (pygame) sims: build + render each one headless.
+# A missing package here means the extras did not install (hard error); a render problem is only a warning
+# (the train scripts re-check it before training and say what to change).
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}"
+for sim in aloha pusht; do
+  rc=0; out="$(timeout 300 "$PY" "$(dirname "$0")/lib/lerobot_sim_probe.py" "$sim" 2>&1)" || rc=$?
+  case "$rc" in
+    0) ok "$(grep -a '^sim probe ok' <<<"$out" | tail -n1)" ;;
+    3) die "gym_$sim missing after installing lerobot[$LEROBOT_EXTRAS] (LEROBOT_EXTRAS must include $sim): $(tail -n1 <<<"$out")" ;;
+    *) warn "gym_$sim installed but its headless render failed: $(grep -a '^sim probe' <<<"$out" | tail -n1)" ;;
+  esac
+done
 "$ENV/bin/lerobot-info" || true
 # Which flag spellings this LeRobot uses (the train scripts detect them the same way at run time)
 lerobot_train_compat "$ENV/bin/lerobot-train"

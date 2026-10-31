@@ -15,6 +15,7 @@
 #   RUN_MIMIC=1          also run the Isaac Lab Mimic pipeline (needs the 'mimic' extra in your Isaac env)
 #   SKIP_STEPS="a b"     skip steps by name    ONLY_STEPS="a b"   run only these steps
 #   SKIP_INSTALL=1       do not run base_deps / *_install steps (assume already installed)
+#   EVAL_ONLY=1          act_aloha / diffusion_pusht: only re-evaluate the newest saved checkpoint (no training)
 #   STEP_TIMEOUT=14400   per-step timeout in seconds (0 = none, default)
 #   RUNS_DIR=path        where runs/<timestamp> goes (default: <repo>/runs)
 #   RSP_DRY_RUN=1        do not run real steps: replay tests/fixtures logs (CI / control-flow check).

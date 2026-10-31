@@ -125,5 +125,8 @@ else grep -v '^ok' "$TMP/hints.txt"; echo "FAIL - tests/test_hints_apt.sh"; nfai
 if bash "$T/test_lerobot_libero.sh" > "$TMP/lr.txt" 2>&1; then echo "ok   - tests/test_lerobot_libero.sh ($(grep -c '^ok' "$TMP/lr.txt") checks)"
 else grep -v '^ok' "$TMP/lr.txt"; echo "FAIL - tests/test_lerobot_libero.sh"; nfail=$((nfail+1)); fi
 
+if bash "$T/test_lerobot_sims.sh" > "$TMP/sims.txt" 2>&1; then echo "ok   - tests/test_lerobot_sims.sh ($(grep -c '^ok' "$TMP/sims.txt") checks)"
+else grep -v '^ok' "$TMP/sims.txt"; echo "FAIL - tests/test_lerobot_sims.sh"; nfail=$((nfail+1)); fi
+
 echo; [ "$nfail" = 0 ] && echo "ALL PASS" || echo "$nfail FAILED"
 exit "$nfail"
