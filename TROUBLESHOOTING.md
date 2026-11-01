@@ -108,6 +108,18 @@ algorithms that fit the free memory. The diffusion script sets `PYTORCH_CUDA_ALL
 (if unset) to keep that cache compact. If a shared 24 GB card still runs out: `BATCH=16`, or add
 `--cudnn_deterministic=true` by hand (slower).
 
+## Isaac Lab Mimic: `EOFError` after "model directory ... already exists! overwrite? (y/n)"
+
+robomimic asks this with `input()` when the experiment folder from an earlier run exists; headless runs cannot
+answer. Fixed: each run trains into its own folder (`bc_rnn_low_dim_franka_stack-<timestamp>`), and an existing
+`MIMIC_EXP_NAME` folder is moved to `<dir>.bak-<timestamp>` (never deleted). `git pull`, then rerun only Mimic:
+
+```bash
+RUN_MIMIC=1 SKIP_INSTALL=1 ONLY_STEPS=isaac_mimic bash scripts/run_wsl_headless.sh
+```
+
+The rerun reuses `generated_dataset.hdf5` when it holds at least `N_GEN` demos (`REUSE_DATA=0` regenerates).
+
 ## Isaac Lab Mimic: `[FAIL] No robomimic checkpoint found` after training finished
 Annotate, generate and train all finished (`finished run successfully!`, `save checkpoint to .../model_epoch_N.pth`),
 then the play stage could not find the model. robomimic (Isaac Lab release/3.0.0) saves to

@@ -7,7 +7,8 @@ workstation, the problems found and fixed on the way, and how to rerun everythin
 !!! summary "Status (Nov 1, 2026)"
     * **Quick run (`QUICK=1`) on the dual RTX 3090 workstation: all 14 steps PASS** (Oct 31 – Nov 1, 2026).
       Quick-mode success rates are pipeline checks, not meaningful policy scores.
-    * **Full-length run on the dual RTX 3090 workstation: in progress (started Nov 1, 2026), results pending.**
+    * **Full-length run on the dual RTX 3090 workstation (Nov 1, 2026): 9 of 10 steps PASS.** `isaac_mimic` FAILED
+      on robomimic's "overwrite?" prompt (fixed in `5d1f64e`); its rerun is pending.
       See [Full-length run](#full-length-run-dual-rtx-3090).
     * RTX 4090 workstation and RTX 5090 Laptop (WSL2): not validated yet.
 
@@ -138,23 +139,28 @@ each row is the latest passing run).
 
 ## Full-length run, dual RTX 3090
 
-**Status: in progress (started Nov 1, 2026), results pending.** The table below is a placeholder; it will be
-filled in from the run's `SUMMARY.md`. Nothing in it is measured yet, and **durations are unmeasured**.
+**Run `20261101-121944` (Nov 1, 2026, `QUICK=0`, `SKIP_INSTALL=1`), split across the two GPUs:** Isaac steps on
+GPU 0 (`runs/gpu0`), LeRobot / openpi / ManiSkill on GPU 1 (`runs/gpu1`). **9 of 10 PASS; Mimic rerun pending.**
+Numbers are copied from the two `SUMMARY.md` files.
 
-| Step | Settings (full length) | Result | Wall time | Peak GPU | Key metric |
-|---|---|---|---|---|---|
-| `system_check` | – | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `isaac_validate` | Reach, 64 envs, 3 iterations (Newton) | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `isaac_physx_smoke` | Reach, 64 envs, 3 iterations (PhysX) | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `isaac_rl_franka` | Lift, 1024 envs, 1500 iterations | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `isaac_mimic` | 1000 demos, 1000 epochs, 50 rollouts | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `act_aloha` | 20000 steps, batch 8, 10 eval episodes | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `diffusion_pusht` | 50000 steps, batch 64, 50 eval episodes | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `smolvla_libero_eval` | libero_object, `N_EPISODES=2` | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `openpi_pi05_libero_eval` | libero_spatial, 5 trials per task (50 episodes) | _pending_ | _unmeasured_ | _pending_ | _pending_ |
-| `maniskill_ppo` | PushCube-v1, 2M steps, 2048 envs | _pending_ | _unmeasured_ | _pending_ | _pending_ |
+| Step | Settings (full length) | GPU | Result | Wall time | Peak GPU | Key metric |
+|---|---|---|---|---|---|---|
+| `system_check` | – | 0 | PASS | 1 s | 1072 MiB | FAIL: 0, WARN: 2 |
+| `isaac_validate` | Reach, 64 envs, 3 iterations (Newton) | 0 | PASS | 21 s | 1482 MiB | checks PASS=11 FAIL=0 |
+| `isaac_physx_smoke` | Reach, 64 envs, 3 iterations (PhysX) | 0 | PASS | 17 s | 3516 MiB | checks PASS=11 FAIL=0 |
+| `isaac_rl_franka` | Lift, 1024 envs, 1500 iterations | 0 | PASS | 19 m 58 s | 3726 MiB | mean reward 20.37, iter 1499 |
+| `isaac_mimic` | 1000 demos, 1000 epochs, 50 rollouts | 0 | **FAIL** → fixed `5d1f64e`, rerun pending | 27 m 09 s | 17983 MiB (either GPU, see caveat) | annotate + generate done; train stopped at robomimic's prompt ([issue 13](#issues-found-and-fixed-during-validation)) |
+| `act_aloha` | 20000 steps, batch 8, 10 eval episodes | 1 | PASS | 27 m 04 s | 5002 MiB | loss 0.109, eval success 40.0% |
+| `diffusion_pusht` | 50000 steps, batch 64, 50 eval episodes | 1 | PASS | 1 h 57 m | 20929 MiB | loss 0.003, eval success 46.0% |
+| `smolvla_libero_eval` | libero_object, `N_EPISODES=2` | 1 | PASS | 2 m 05 s | 1779 MiB | success 85.0% |
+| `openpi_pi05_libero_eval` | libero_spatial, 5 trials per task (50 episodes) | 1 | PASS | 6 m 07 s | 19461 MiB | success 100.0% of 50 episodes |
+| `maniskill_ppo` | PushCube-v1, 2M steps, 2048 envs | 1 | PASS | 2 m 50 s | 18409 MiB | eval success_once 1.0, return 37.92 |
 
-Install steps (`base_deps`, `*_install`) are skipped with `SKIP_INSTALL=1` in the full run because they already passed.
+* **Diffusion at batch 64 fit on one 24 GB RTX 3090** (passed; peak ≤ 20.9 GB); `BATCH=32/16` was not needed.
+* **Peak GPU caveat:** in this run the sampler took the highest `memory.used` on *either* GPU, so a row can include
+  the other lane's memory (e.g. Mimic's 17983 MiB overlapped Diffusion on GPU 1). Since `6d43958`, a split run counts
+  only its own `CUDA_VISIBLE_DEVICES` GPU. Per-GPU samples of this run are in `runs/gpu*/*/<step>.gpu.csv`.
+* Install steps (`base_deps`, `*_install`) were skipped with `SKIP_INSTALL=1` because they had already passed.
 
 ## Issues found and fixed during validation
 
@@ -175,6 +181,7 @@ fixture made from the real log (`tests/`). Commits are on the PR #2 branch `curs
 | 10 | `./isaaclab.sh -i mimic`: `ModuleNotFoundError: No module named 'tomllib'` | without an active venv, `isaaclab.sh` used Ubuntu 22.04's system Python 3.10 (`tomllib` exists from 3.11) | activate the Isaac Lab venv first (command above) | user action (no commit) |
 | 11 | Mimic play: `[FAIL] No robomimic checkpoint found` after training succeeded | robomimic saves to `logs/robomimic/<task>/<experiment>/<timestamp>/models/*.pth`, one level deeper than the old glob | newest `*/models/*.pth` at any depth (task folder first); `MIMIC_STAGE=play` reruns only the play stage; play.py's success rate is the step metric | `7ba5a02` |
 | 12 | wrong hint for issue 11: "OpenGL/EGL problem: try MUJOCO_GL=osmesa" | the Kit warning `Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext ...])` (8× in the log, normal without a display) matched `GLContext` | hint matching ignores benign Kit `[Warning]` lines and egl-probe install lines; the EGL hint only looks at the end of the log; a specific checkpoint hint | `7ba5a02`, `012f02b` |
+| 13 | full run, Mimic train: `EOFError` after `model directory (.../bc_rnn_low_dim_franka_stack) already exists! overwrite? (y/n)` | robomimic 0.4.0 `get_exp_dir()` asks with `input()` when the experiment folder exists (left by the quick run); Isaac Lab's `train.py` never passes `auto_remove_exp_dir` | each run trains into its own folder (`--name bc_rnn_low_dim_franka_stack-<timestamp>`); a reused `MIMIC_EXP_NAME` folder is moved to `<dir>.bak-<timestamp>`, never deleted; stdin is `/dev/null`; play uses this run's checkpoint; `train.py`'s swallowed `run failed with error` now fails the step; a rerun reuses `generated_dataset.hdf5` if it holds ≥ `N_GEN` demos (`REUSE_DATA=0` regenerates) | `5d1f64e` |
 
 More detail for each: [TROUBLESHOOTING.md](../TROUBLESHOOTING.md).
 
