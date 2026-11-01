@@ -1,7 +1,10 @@
 [rsp 00:26:12] Mimic stage: all
  + egl-probe==1.0.2
       Built egl-probe==1.0.2
-[INFO] robomimic: EGL device probe (egl_probe) found 2 devices
+2026-10-31T16:28:03Z [942ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-10-31T16:28:05Z [2,854ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-10-31T16:28:05Z [3,092ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-10-31T16:28:05Z [3,096ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
 Epoch 20 Memory Usage: 3149 MB
 {
     "Log_Likelihood": 19.005582294464112,
@@ -22,6 +25,7 @@ finished run successfully!
 Loading user config located at: '/home/lcc/IsaacLab/.venv/lib/python3.12/site-packages/isaacsim/kit/data/Kit/IsaacLab/3.0/user.config.json'
 2026-10-31T16:31:43Z [0ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
 2026-10-31T16:31:43Z [108ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
-2026-10-31T16:31:43Z [110ms] [Warning] [carb.windowing-glfw.plugin] GLContext: no display, eglGetDisplay skipped (headless)
+2026-10-31T16:31:43Z [883ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+2026-10-31T16:31:45Z [2,345ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
 [ OK ] robomimic models are saved under $ISAACLAB_PATH/logs/robomimic
 [FAIL] No robomimic checkpoint found; set CHECKPOINT=/path/model.pth

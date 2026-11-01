@@ -59,10 +59,12 @@ extract_metric() {
 # _hint_body LOG -> the log minus lines that only LIST package / file names (apt package lists, apt fetch lines),
 # so a package called "vulkan-tools" or "libegl1" in an install line never looks like a Vulkan / EGL error.
 # Also drops benign Isaac Sim (Kit) warnings on a headless machine, e.g. "[Warning] [omni.platforminfo.plugin] failed
-# to open the default display. Can't verify X Server version.", and installer lines naming egl-probe (robomimic dep).
+# to open the default display. Can't verify X Server version.", "[Warning] [carb] Failed to startup plugin
+# carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext ...])" (no X server; 8x in the user's Mimic log,
+# its "IGLContext" used to trigger the OpenGL/EGL hint), and installer lines naming egl-probe (robomimic dep).
 _hint_body() {
   grep -avE 'Installing apt packages|apt-get install|^(Get|Hit|Ign):[0-9]+ |^(Reading|Building|Selecting|Preparing|Unpacking|Setting up) |^The following (NEW )?packages' "$1" 2>/dev/null \
-    | grep -avE '\[(Warning|Info|Verbose)\] \[[a-zA-Z0-9_.-]+\]|failed to open the default display|Can.t verify X Server version|egl[-_]probe(==| @|-[0-9])|(Built|Installed|Uninstalled|Prepared|Downloading|Collecting|Requirement already satisfied:?) .*egl|^ *[+-] [a-zA-Z0-9_.-]+==' || true
+    | grep -avE '\[(Warning|Info|Verbose)\] \[[a-zA-Z0-9_.-]+\]|failed to open the default display|Failed to startup plugin carb\.windowing-glfw|Can.t verify X Server version|egl[-_]probe(==| @|-[0-9])|(Built|Installed|Uninstalled|Prepared|Downloading|Collecting|Requirement already satisfied:?) .*egl|^ *[+-] [a-zA-Z0-9_.-]+==' || true
 }
 # _hint_wsl -> 0 on WSL2. Kept separate so every WSL-only wording sits behind one check.
 _hint_wsl() { declare -F is_wsl >/dev/null && is_wsl; }

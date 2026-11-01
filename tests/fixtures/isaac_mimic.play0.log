@@ -1,0 +1,25 @@
+[rsp 12:08:21] Mimic stage: play
+[ OK ] robomimic checkpoint: /home/lcc/IsaacLab/logs/robomimic/IsaacContrib-Stack-Cube-Franka-IK-Rel/bc_rnn_low_dim_franka_stack/20261101003144/models/model_epoch_20.pth
+2026-11-01T04:08:30Z [108ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-11-01T04:08:31Z [883ms] [Warning] [carb] Failed to startup plugin carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext v1.0],[carb::windowing::IWindowing v1.5]) (impl: carb.windowing-glfw.plugin)
+[INFO] Starting trial 0
+[INFO] Trial 0: False
+
+[INFO] Starting trial 1
+[INFO] Trial 1: False
+
+[INFO] Starting trial 2
+[INFO] Trial 2: False
+
+[INFO] Starting trial 3
+[INFO] Trial 3: False
+
+[INFO] Starting trial 4
+[INFO] Trial 4: False
+
+
+Successful trials: 0, out of 5 trials
+Success rate: 0.0
+Trial Results: [False, False, False, False, False]
+
+[ OK ] Mimic pipeline stage 'play' done. Data in /home/lcc/robot-sim/data/isaaclab_mimic

@@ -38,6 +38,13 @@ check "nockpt hint is not OpenGL/EGL"       "$(grep -ci 'OpenGL\|osmesa' <<<"$h"
 grep -v 'No robomimic checkpoint' "$F" > "$TMP/benign.log"
 check "Kit 'default display' warning is not an EGL error" "$(RSP_FORCE_WSL=0 failure_hint isaac_mimic "$TMP/benign.log" 1 | grep -ci 'OpenGL\|osmesa')" 0
 check "other kit [FAIL] line is quoted"     "$(printf 'x\n[FAIL] something else broke\n' > "$TMP/f.log"; RSP_FORCE_WSL=0 failure_hint isaac_mimic "$TMP/f.log" 1 | cut -c1-40)" "Isaac error: something else broke; see t"
+# The user's real culprit: Kit's "Failed to startup plugin carb.windowing-glfw.plugin (... IGLContext ...)" warning,
+# early in the log and within its last 80 lines. The old matcher (GLContext) turned it into the OpenGL/EGL hint.
+check "fixture has the real glfw line early + late" "$(grep -c 'Failed to startup plugin carb.windowing-glfw.plugin' "$F") $(head -n 10 "$F" | grep -qc 'IGLContext' && echo early) $(tail -n 3 "$F" | grep -qc 'IGLContext' && echo late)" "6 early late"
+check "glfw warning alone: no EGL hint"     "$(grep -E 'windowing-glfw' "$F" > "$TMP/glfw.log"; RSP_FORCE_WSL=0 failure_hint isaac_mimic "$TMP/glfw.log" 1 | grep -ci 'OpenGL\|osmesa')" 0
+if [ -n "${OLD_RESULTS:-}" ] && [ -f "$OLD_RESULTS" ]; then   # optional: OLD_RESULTS=<old results.sh> shows the regression
+  check "old matcher gave the wrong hint" "$(bash -c 'source "$1"; source "$2"; set +e; RSP_FORCE_WSL=0 failure_hint isaac_mimic "$3" 1' _ "$K/scripts/lib/common.sh" "$OLD_RESULTS" "$F" | cut -c1-19)" "OpenGL/EGL problem:"
+fi
 # A real EGL error at the end of a log still gets the EGL hint.
 printf 'Traceback (most recent call last):\nRuntimeError: eglInitialize() failed\n' > "$TMP/egl.log"
 check "real EGL error still hinted"         "$(RSP_FORCE_WSL=0 failure_hint act_aloha "$TMP/egl.log" 1 | cut -c1-19)" "OpenGL/EGL problem:"
@@ -46,6 +53,9 @@ check "real EGL error still hinted"         "$(RSP_FORCE_WSL=0 failure_hint act_
 sed "s|@RUNTMP@|$TMP|g" "$T/fixtures/isaac_mimic.log" > "$TMP/play.log"
 check "metric: play success rate"           "$(extract_metric isaac_mimic "$TMP/play.log")" "play success 40.0% (2/5 rollouts)"
 check "metric: trained, no play"            "$(extract_metric isaac_mimic "$F")" "trained (epoch 20), no play result"
+# The user's real QUICK play result on the dual 3090 (2026-11-01 12:10 SGT: PASS, 147s, 2668 MiB, 0/5); the
+# play.py lines follow release/3.0.0's print format, the Kit lines are the user's.
+check "metric: real QUICK play 0/5"         "$(extract_metric isaac_mimic "$T/fixtures/isaac_mimic.play0.log")" "play success 0.0% (0/5 rollouts)"
 printf 'Success rate: 1.0\n' > "$TMP/p1.log"
 check "metric: rate only"                   "$(extract_metric isaac_mimic "$TMP/p1.log")" "play success 100.0%"
 
