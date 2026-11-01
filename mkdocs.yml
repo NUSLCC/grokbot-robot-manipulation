@@ -1,0 +1,47 @@
+# Docs site for this repo. Build locally:  pip install mkdocs-material && mkdocs build --strict  (output: site/)
+# Preview: mkdocs serve. Publish to GitHub Pages: see docs/VALIDATION.md "Docs site".
+site_name: Robot Manipulation Simulation Platform
+site_description: Headless robot-manipulation simulation kit (Isaac Lab 3.0, LeRobot, openpi, ManiSkill) and its validation results
+repo_url: https://github.com/NUSLCC/grokbot-robot-manipulation
+repo_name: NUSLCC/grokbot-robot-manipulation
+edit_uri: ""
+docs_dir: docs
+site_dir: site
+strict: true
+hooks:
+  - mkdocs_hooks.py   # adds README.md (home) + TROUBLESHOOTING.md from the repo root; fixes repo-relative links
+extra:
+  repo_branch: cursor/wsl2-ubuntu2404-headless   # GitHub branch that links to scripts/... point at (main after merge)
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+    - search.highlight
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.details
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+nav:
+  - Home: index.md
+  - Validation results: VALIDATION.md
+  - WSL2 / headless runner: WSL2.md
+  - Isaac Lab: ISAAC_LAB.md
+  - Docker: DOCKER.md
+  - Troubleshooting: TROUBLESHOOTING.md
+  - Sources: SOURCES.md

@@ -131,5 +131,8 @@ else grep -v '^ok' "$TMP/sims.txt"; echo "FAIL - tests/test_lerobot_sims.sh"; nf
 if bash "$T/test_isaac_mimic.sh" > "$TMP/mimic.txt" 2>&1; then echo "ok   - tests/test_isaac_mimic.sh ($(grep -c '^ok' "$TMP/mimic.txt") checks)"
 else grep -v '^ok' "$TMP/mimic.txt"; echo "FAIL - tests/test_isaac_mimic.sh"; nfail=$((nfail+1)); fi
 
+if bash "$T/test_docs_links.sh" > "$TMP/docs.txt" 2>&1; then echo "ok   - tests/test_docs_links.sh ($(grep -c '^ok' "$TMP/docs.txt") checks)"
+else grep -v '^ok' "$TMP/docs.txt"; echo "FAIL - tests/test_docs_links.sh"; nfail=$((nfail+1)); fi
+
 echo; [ "$nfail" = 0 ] && echo "ALL PASS" || echo "$nfail FAILED"
 exit "$nfail"
