@@ -114,8 +114,12 @@ sampler_start() {
 }
 sampler_stop() {
   if [ -n "$SAMPLER_PID" ]; then kill "$SAMPLER_PID" 2>/dev/null; wait "$SAMPLER_PID" 2>/dev/null; fi
-  if [ -s "$1" ]; then awk -F, '{gsub(/ /,"",$2); if($2+0>m)m=$2+0}END{print m+0}' "$1"; else echo "n/a"; fi
+  if [ -s "$1" ]; then awk -F, -v vis="$PEAK_GPUS" 'BEGIN{n=split(vis,a,",");for(i=1;i<=n;i++)ok[a[i]]=1}
+    {gsub(/ /,"",$1); gsub(/ /,"",$2); if((vis==""||($1 in ok)) && $2+0>m)m=$2+0}END{print m+0}' "$1"; else echo "n/a"; fi
 }
+# With CUDA_VISIBLE_DEVICES=<numeric list> (e.g. the two-GPU split) the peak counts only those GPUs, so the other
+# lane's memory is not included. The .gpu.csv files keep every GPU's samples.
+PEAK_GPUS=""; [[ "${CUDA_VISIBLE_DEVICES:-}" =~ ^[0-9]+(,[0-9]+)*$ ]] && PEAK_GPUS="$CUDA_VISIBLE_DEVICES"
 trap '[ -n "$SAMPLER_PID" ] && kill "$SAMPLER_PID" 2>/dev/null' EXIT
 
 dry_rc() { local kv; for kv in $RSP_DRY_RUN_RC; do [ "${kv%%=*}" = "$1" ] && { echo "${kv#*=}"; return; }; done; echo 0; }
@@ -189,7 +193,8 @@ SUM="$OUT/SUMMARY.md"
     done
   fi
   echo
-  echo "Peak GPU MB = highest memory.used on any GPU while the step ran (whole GPU, sampled every second by nvidia-smi)."
+  if [ -n "$PEAK_GPUS" ]; then echo "Peak GPU MB = highest memory.used on GPU $PEAK_GPUS (CUDA_VISIBLE_DEVICES) while the step ran (whole GPU, sampled every second by nvidia-smi)."
+  else echo "Peak GPU MB = highest memory.used on any GPU while the step ran (whole GPU, sampled every second by nvidia-smi)."; fi
   echo "Rerun only what failed: \`ONLY_STEPS=\"<step> ...\" bash scripts/run_wsl_headless.sh\` (add SKIP_INSTALL=1 if the installs passed)."
 } > "$SUM"
 

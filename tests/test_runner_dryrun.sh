@@ -119,6 +119,17 @@ check "ONLY_STEPS rerun: install skipped"   "$(met lerobot_install)" "not in ONL
 check "ONLY_STEPS rerun: no sudo prompt"    "$(grep -c 'asking once now' "$TMP/only.txt")" 0
 
 # Unit tests for hints / apt / dpkg / declared dependencies (run from here so the existing CI step covers them).
+# Two-GPU split: with CUDA_VISIBLE_DEVICES=1 the peak counts only GPU 1 (GPU 0's other lane is excluded).
+for cvd in 1 ""; do
+  rm -rf "$TMP/runs_split"
+  env RUNS_DIR="$TMP/runs_split" FAKE_GPU_COUNT=2 FAKE_GPU_USED_LIST=9000,1500 CUDA_VISIBLE_DEVICES="$cvd" ONLY_STEPS=system_check \
+    bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
+  S2="$(ls "$TMP"/runs_split/*/SUMMARY.md)"
+  p2="$(grep -E '^\| system_check \|' "$S2" | awk -F'|' '{gsub(/ /,"",$5); print $5}')"
+  if [ -n "$cvd" ]; then check "split: peak only from GPU 1" "$p2" 1500; check "split: footer names GPU 1" "$(grep -c 'on GPU 1 (CUDA_VISIBLE_DEVICES)' "$S2")" 1
+  else check "no CUDA_VISIBLE_DEVICES: peak from any GPU" "$p2" 9000; fi
+done
+
 if bash "$T/test_hints_apt.sh" > "$TMP/hints.txt" 2>&1; then echo "ok   - tests/test_hints_apt.sh ($(grep -c '^ok' "$TMP/hints.txt") checks)"
 else grep -v '^ok' "$TMP/hints.txt"; echo "FAIL - tests/test_hints_apt.sh"; nfail=$((nfail+1)); fi
 

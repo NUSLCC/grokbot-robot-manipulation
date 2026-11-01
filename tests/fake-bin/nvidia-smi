@@ -3,6 +3,7 @@
 #   FAKE_GPU_NAME   (default "NVIDIA GeForce RTX 5090 Laptop GPU")
 #   FAKE_GPU_MEM    total MiB (default 24463)   FAKE_GPU_CC (default 12.0)   FAKE_GPU_COUNT (default 1)
 #   FAKE_DRIVER     (default 596.36)            FAKE_GPU_USED  used MiB reported by the sampler (default 1234)
+#   FAKE_GPU_USED_LIST  per-GPU used MiB, e.g. "9000,1500" (GPU 0, GPU 1); overrides FAKE_GPU_USED
 name="${FAKE_GPU_NAME:-NVIDIA GeForce RTX 5090 Laptop GPU}"; mem="${FAKE_GPU_MEM:-24463}"; cc="${FAKE_GPU_CC:-12.0}"
 n="${FAKE_GPU_COUNT:-1}"; drv="${FAKE_DRIVER:-596.36}"; used="${FAKE_GPU_USED:-1234}"
 q=""; units=1; loop=""
@@ -19,7 +20,9 @@ field() {
   case "$1" in
     name) echo "$name" ;;
     memory.total) [ "$units" = 1 ] && echo "$mem MiB" || echo "$mem" ;;
-    memory.used) [ "$units" = 1 ] && echo "$used MiB" || echo "$used" ;;
+    memory.used) local u="$used"; [ -n "${FAKE_GPU_USED_LIST:-}" ] && { IFS=, read -ra ul <<<"$FAKE_GPU_USED_LIST"; u="${ul[$_i]:-$used}"; }
+                 [ "$units" = 1 ] && echo "$u MiB" || echo "$u" ;;
+    index) echo "$_i" ;;
     utilization.gpu) [ "$units" = 1 ] && echo "37 %" || echo 37 ;;
     compute_cap) echo "$cc" ;;
     driver_version) echo "$drv" ;;
@@ -27,7 +30,7 @@ field() {
     *) echo "[N/A]" ;;
   esac
 }
-emit() { local i f out; for ((i=0;i<n;i++)); do out=""; IFS=, read -ra fs <<<"$q"; for f in "${fs[@]}"; do out="${out:+$out, }$(field "$f")"; done; echo "$out"; done; }
+emit() { local f out; for ((_i=0;_i<n;_i++)); do out=""; IFS=, read -ra fs <<<"$q"; for f in "${fs[@]}"; do out="${out:+$out, }$(field "$f")"; done; echo "$out"; done; }
 if [ -n "$q" ]; then
   if [ -n "$loop" ]; then while true; do emit; sleep "$loop"; done; else emit; fi
   exit 0
