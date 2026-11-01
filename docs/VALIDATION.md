@@ -7,8 +7,8 @@ workstation, the problems found and fixed on the way, and how to rerun everythin
 !!! summary "Status (Nov 1, 2026)"
     * **Quick run (`QUICK=1`) on the dual RTX 3090 workstation: all 14 steps PASS** (Oct 31 – Nov 1, 2026).
       Quick-mode success rates are pipeline checks, not meaningful policy scores.
-    * **Full-length run on the dual RTX 3090 workstation (Nov 1, 2026): 9 of 10 steps PASS.** `isaac_mimic` FAILED
-      on robomimic's "overwrite?" prompt (fixed in `5d1f64e`); its rerun is pending.
+    * **Full-length run on the dual RTX 3090 workstation (Nov 1, 2026): all 10 steps PASS.** `isaac_mimic` first
+      failed on robomimic's "overwrite?" prompt; the fix (`5d1f64e`) passed on rerun `20261101-221416` (88%, 44/50).
       See [Full-length run](#full-length-run-dual-rtx-3090).
     * RTX 4090 workstation and RTX 5090 Laptop (WSL2): not validated yet.
 
@@ -140,7 +140,7 @@ each row is the latest passing run).
 ## Full-length run, dual RTX 3090
 
 **Run `20261101-121944` (Nov 1, 2026, `QUICK=0`, `SKIP_INSTALL=1`), split across the two GPUs:** Isaac steps on
-GPU 0 (`runs/gpu0`), LeRobot / openpi / ManiSkill on GPU 1 (`runs/gpu1`). **9 of 10 PASS; Mimic rerun pending.**
+GPU 0 (`runs/gpu0`), LeRobot / openpi / ManiSkill on GPU 1 (`runs/gpu1`). **10/10 PASS** (`isaac_mimic` from Mimic-only rerun `20261101-221416`, GPU 0, after fix `5d1f64e`).
 Numbers are copied from the two `SUMMARY.md` files.
 
 | Step | Settings (full length) | GPU | Result | Wall time | Peak GPU | Key metric |
@@ -149,7 +149,7 @@ Numbers are copied from the two `SUMMARY.md` files.
 | `isaac_validate` | Reach, 64 envs, 3 iterations (Newton) | 0 | PASS | 21 s | 1482 MiB | checks PASS=11 FAIL=0 |
 | `isaac_physx_smoke` | Reach, 64 envs, 3 iterations (PhysX) | 0 | PASS | 17 s | 3516 MiB | checks PASS=11 FAIL=0 |
 | `isaac_rl_franka` | Lift, 1024 envs, 1500 iterations | 0 | PASS | 19 m 58 s | 3726 MiB | mean reward 20.37, iter 1499 |
-| `isaac_mimic` | 1000 demos, 1000 epochs, 50 rollouts | 0 | **FAIL** → fixed `5d1f64e`, rerun pending | 27 m 09 s | 17983 MiB (either GPU, see caveat) | annotate + generate done; train stopped at robomimic's prompt ([issue 13](#issues-found-and-fixed-during-validation)) |
+| `isaac_mimic` | 1000 demos, 1000 epochs, 50 rollouts | 0 | PASS (rerun `20261101-221416`; first run FAILED, [issue 13](#issues-found-and-fixed-during-validation)) | 29 m 05 s | 2769 MiB (GPU 0 only) | play success 88.0% (44/50 rollouts) |
 | `act_aloha` | 20000 steps, batch 8, 10 eval episodes | 1 | PASS | 27 m 04 s | 5002 MiB | loss 0.109, eval success 40.0% |
 | `diffusion_pusht` | 50000 steps, batch 64, 50 eval episodes | 1 | PASS | 1 h 57 m | 20929 MiB | loss 0.003, eval success 46.0% |
 | `smolvla_libero_eval` | libero_object, `N_EPISODES=2` | 1 | PASS | 2 m 05 s | 1779 MiB | success 85.0% |
@@ -158,7 +158,7 @@ Numbers are copied from the two `SUMMARY.md` files.
 
 * **Diffusion at batch 64 fit on one 24 GB RTX 3090** (passed; peak ≤ 20.9 GB); `BATCH=32/16` was not needed.
 * **Peak GPU caveat:** in this run the sampler took the highest `memory.used` on *either* GPU, so a row can include
-  the other lane's memory (e.g. Mimic's 17983 MiB overlapped Diffusion on GPU 1). Since `6d43958`, a split run counts
+  the other lane's memory (e.g. the failed Mimic run showed 17983 MiB while Diffusion ran on GPU 1; the GPU-0-only rerun peaked at 2769 MiB). Since `6d43958`, a split run counts
   only its own `CUDA_VISIBLE_DEVICES` GPU. Per-GPU samples of this run are in `runs/gpu*/*/<step>.gpu.csv`.
 * Install steps (`base_deps`, `*_install`) were skipped with `SKIP_INSTALL=1` because they had already passed.
 

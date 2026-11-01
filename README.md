@@ -22,7 +22,7 @@ issues found and fixed, how to rerun). Also browsable as a docs site: `mkdocs bu
 
 | Machine | Quick run (`QUICK=1`) | Full-length run |
 |---|---|---|
-| lcc-TRX40, 2x RTX 3090, Ubuntu 22.04 (`dual3090`) | **14/14 steps PASS** (Oct 31 – Nov 1, 2026) | **9/10 PASS** (Nov 1, 2026); Mimic fixed, rerun pending |
+| lcc-TRX40, 2x RTX 3090, Ubuntu 22.04 (`dual3090`) | **14/14 steps PASS** (Oct 31 – Nov 1, 2026) | **10/10 PASS** (Nov 1, 2026; Mimic via rerun after fix `5d1f64e`) |
 | RTX 4090 workstation (`rtx4090`) | not run yet | not run yet |
 | RTX 5090 Laptop, WSL2 (`rtx5090_laptop_wsl`) | not run yet | not run yet |
 
