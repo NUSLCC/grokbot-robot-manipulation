@@ -86,6 +86,8 @@ failure_hint() {
     echo "Mimic trained but the play stage found no checkpoint (.pth) under \$ISAACLAB_PATH/logs/robomimic: git pull the kit (it searches at any depth), then rerun only the play stage: MIMIC_STAGE=play (TROUBLESHOOTING.md 'Isaac Lab Mimic'), or set CHECKPOINT=/path/model_epoch_N.pth"
   elif _hint_has "has no attribute '_cloth_label'"; then
     echo "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command"
+  elif _hint_has 'EOFError: EOF when reading a line' && _hint_has 'model directory .* already exists'; then
+    echo "robomimic asked whether to overwrite a model folder left by an earlier run (headless runs cannot answer): git pull the kit (each run now trains into its own folder; old ones are kept) and rerun ONLY_STEPS=isaac_mimic RUN_MIMIC=1; the generated demos are reused, so it starts at training"
   elif _hint_has 'EOFError: EOF when reading a line'; then
     if _hint_has 'libero'; then echo "LIBERO asked its first-run question (no config.yaml): git pull the kit (it writes LIBERO's default config itself) and rerun; see the libero_config line in the log"
     else echo "a tool asked an interactive question, but headless steps have no keyboard: see the prompt just above the EOFError in the log"; fi

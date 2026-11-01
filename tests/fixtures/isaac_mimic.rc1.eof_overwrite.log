@@ -1,0 +1,40 @@
+2026-11-01T04:42:52Z [10,825ms] [Warning] [omni.usd] Encountered USD Warnings but USD Diagnostics are currently muted. To view USD Warnings, please set the '/persistent/app/usd/muteUsdDiagnostics' setting to false in Preferences page.
+2026-11-01T05:07:24Z [1,483,139ms] [Warning] [omni.kit.material.library.material_extensions] Could not initialize context menu integration: No module named 'omni.kit.context_menu'
+Peak GPU memory (generate): 5463 MiB
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1793509649.519248  116924 descriptor_database.cc:633] File already exists in database: grpc/health/v1/health.proto
+W0000 00:00:1793509649.519296  116924 message.cc:301] Protobuf GeneratedMessageFactory: File is already registered: grpc/health/v1/health.proto
+Warning: Possible version incompatibility. Attempting to load carb::ujitso::IFactory with version v0.3 against v0.2.
+[ISAACLAB] KitLauncher initialization complete
+ROBOMIMIC WARNING(
+    No private macro file found!
+    It is recommended to use a private macro file
+    To setup, run: python /home/lcc/IsaacLab/.venv/lib/python3.12/site-packages/robomimic/scripts/setup_macros.py
+)
+Warp 1.17.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 3090" (24 GiB, sm_86, mempool enabled)
+   Kernel cache:
+     /home/lcc/.cache/warp/1.17.0
+Loading configuration for task: IsaacContrib-Stack-Cube-Franka-IK-Rel
+dict_keys(['CartPole-v0', 'CartPole-v1', 'Isaac-Lift-Franka', 'IsaacContrib-Stack-Cube-Franka-IK-Rel', 'Isaac-Velocity-Rough-H1'])
+ 
+WARNING: model directory (/home/lcc/IsaacLab/logs/robomimic/IsaacContrib-Stack-Cube-Franka-IK-Rel/bc_rnn_low_dim_franka_stack) already exists! 
+overwrite? (y/n)
+Traceback (most recent call last):
+  File "/home/lcc/IsaacLab/source/isaaclab/isaaclab/app/sim_launcher.py", line 677, in launch_simulation
+    yield physics_cfg
+  File "/home/lcc/IsaacLab/scripts/imitation_learning/robomimic/train.py", line 448, in <module>
+    main(args)
+  File "/home/lcc/IsaacLab/scripts/imitation_learning/robomimic/train.py", line 392, in main
+    log_dir, ckpt_dir, video_dir = TrainUtils.get_exp_dir(config)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/lcc/IsaacLab/.venv/lib/python3.12/site-packages/robomimic/utils/train_utils.py", line 60, in get_exp_dir
+    ans = input("WARNING: model directory ({}) already exists! \noverwrite? (y/n)\n".format(base_output_dir))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+EOFError: EOF when reading a line
+Loading user config located at: '/home/lcc/IsaacLab/.venv/lib/python3.12/site-packages/isaacsim/kit/data/Kit/IsaacLab/3.0/user.config.json'
+2026-11-01T05:07:29Z [0ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-11-01T05:07:30Z [103ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
