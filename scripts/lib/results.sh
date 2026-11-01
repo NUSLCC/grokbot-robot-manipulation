@@ -7,7 +7,7 @@ _last() { grep -aoE "$2" "$1" 2>/dev/null | tail -n1 || true; }
 _num()  { grep -aoE '[-+]?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?' <<<"$1" | tail -n1 || true; }
 
 # extract_metric KIND LOG -> one short string ("n/a" if nothing found)
-#   KIND: syscheck | isaac_validate | isaac_rl | lerobot_train | lerobot_eval | openpi_eval | maniskill_ppo | install
+#   KIND: syscheck | isaac_validate | isaac_rl | isaac_mimic | lerobot_train | lerobot_eval | openpi_eval | maniskill_ppo | install
 extract_metric() {
   local kind="$1" log="$2" m="" a b
   [ -s "$log" ] || { echo "n/a"; return 0; }
@@ -22,6 +22,16 @@ extract_metric() {
       a="$(_num "$(_last "$log" 'Mean reward:? *[-+]?[0-9.eE+-]+')")"
       [ -n "$a" ] && m="mean reward $a"
       b="$(_num "$(_last "$log" 'Learning iteration [0-9]+')")"; [ -n "$b" ] && m="${m:+$m, }iter $b" ;;
+    isaac_mimic)
+      # Isaac Lab release/3.0.0 scripts/imitation_learning/robomimic/play.py prints
+      #   "Successful trials: K, out of N trials" and "Success rate: <fraction 0..1>"
+      a="$(_num "$(_last "$log" 'Success rate: *[0-9.]+')")"
+      b="$(_last "$log" 'Successful trials: *[0-9]+, out of [0-9]+')"
+      if [ -n "$a" ]; then m="play success $(awk -v x="$a" 'BEGIN{printf "%.1f", x*100}')%"
+        [ -n "$b" ] && m="$m ($(grep -oE '[0-9]+' <<<"$b" | sed -n 1p)/$(grep -oE '[0-9]+' <<<"$b" | sed -n 2p) rollouts)"
+      else
+        b="$(_num "$(_last "$log" 'model_epoch_[0-9]+\.pth')")"; [ -n "$b" ] && m="trained (epoch ${b#-}), no play result"
+      fi ;;
     lerobot_train)
       a="$(_num "$(_last "$log" '(^| )loss:[0-9.eE+-]+')")"; [ -n "$a" ] && m="loss $a"
       b="$(_num "$(_last "$log" "(pc_success['\"]?: *|success:)[0-9.]+")")"; [ -n "$b" ] && m="${m:+$m, }eval success ${b}%" ;;
@@ -46,40 +56,99 @@ extract_metric() {
   echo "${m:-n/a}"
 }
 
-# failure_hint STEP LOG RC -> one-line hint
+# _hint_body LOG -> the log minus lines that only LIST package / file names (apt package lists, apt fetch lines),
+# so a package called "vulkan-tools" or "libegl1" in an install line never looks like a Vulkan / EGL error.
+# Also drops benign Isaac Sim (Kit) warnings on a headless machine, e.g. "[Warning] [omni.platforminfo.plugin] failed
+# to open the default display. Can't verify X Server version.", "[Warning] [carb] Failed to startup plugin
+# carb.windowing-glfw.plugin (interfaces: [carb::windowing::IGLContext ...])" (no X server; 8x in the user's Mimic log,
+# its "IGLContext" used to trigger the OpenGL/EGL hint), and installer lines naming egl-probe (robomimic dep).
+_hint_body() {
+  grep -avE 'Installing apt packages|apt-get install|^(Get|Hit|Ign):[0-9]+ |^(Reading|Building|Selecting|Preparing|Unpacking|Setting up) |^The following (NEW )?packages' "$1" 2>/dev/null \
+    | grep -avE '\[(Warning|Info|Verbose)\] \[[a-zA-Z0-9_.-]+\]|failed to open the default display|Failed to startup plugin carb\.windowing-glfw|Can.t verify X Server version|egl[-_]probe(==| @|-[0-9])|(Built|Installed|Uninstalled|Prepared|Downloading|Collecting|Requirement already satisfied:?) .*egl|^ *[+-] [a-zA-Z0-9_.-]+==' || true
+}
+# _hint_wsl -> 0 on WSL2. Kept separate so every WSL-only wording sits behind one check.
+_hint_wsl() { declare -F is_wsl >/dev/null && is_wsl; }
+# _hint_has ERE -> true if the filtered log body (\$body in failure_hint) matches ERE (case-insensitive)
+_hint_has() { grep -aqiE "$1" <<<"$body"; }
+
+# failure_hint STEP LOG RC -> one-line hint. Matches on the log content and the exit code; WSL2-specific advice is
+# only given when the run is on WSL2 (native Linux never sees a WSL hint).
 failure_hint() {
-  local step="$1" log="$2" rc="$3"
+  local step="$1" log="$2" rc="$3" body wsl=0 err
+  _hint_wsl && wsl=1
   if [ "$step" = system_check ]; then
     local first; first="$(grep -aE '\[FAIL\]' "$log" 2>/dev/null | sed -n 1p | sed 's/.*\[FAIL\][^ ]* *//' | cut -c1-110)"
     echo "fix the [FAIL] lines in the log${first:+ (first: $first)}"
     return 0
   fi
-  if grep -aqiE 'no kernel image is available|sm_120 is not compatible|CUDA capability sm_120' "$log" 2>/dev/null; then
-    echo "torch in this env has no Blackwell (sm_120) kernels: needs a cu128 build (see docs/WSL2.md 'Blackwell')"
-  elif grep -aqiE 'CUDA out of memory|OutOfMemoryError|RESOURCE_EXHAUSTED' "$log" 2>/dev/null; then
-    echo "GPU out of memory: lower BATCH / NUM_ENVS, close other GPU apps (on Windows too)"
-  elif [ "$rc" = 137 ] || grep -aqE '(^|[^a-z])Killed$|MemoryError|Cannot allocate memory' "$log" 2>/dev/null; then
-    echo "killed for RAM: raise memory/swap in %UserProfile%\\.wslconfig (docs/WSL2.md), then 'wsl --shutdown'"
-  elif grep -aqiE 'No space left on device' "$log" 2>/dev/null; then
-    echo "disk full: free space or set RSP_HOME to a bigger Linux-side disk"
-  elif grep -aqiE '401 Client Error|403 Client Error|gated repo|GatedRepoError|Access to model .* is restricted' "$log" 2>/dev/null; then
+  body="$(_hint_body "$log")"
+  if _hint_has 'No robomimic checkpoint found'; then
+    echo "Mimic trained but the play stage found no checkpoint (.pth) under \$ISAACLAB_PATH/logs/robomimic: git pull the kit (it searches at any depth), then rerun only the play stage: MIMIC_STAGE=play (TROUBLESHOOTING.md 'Isaac Lab Mimic'), or set CHECKPOINT=/path/model_epoch_N.pth"
+  elif _hint_has "has no attribute '_cloth_label'"; then
+    echo "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command"
+  elif _hint_has 'EOFError: EOF when reading a line' && _hint_has 'model directory .* already exists'; then
+    echo "robomimic asked whether to overwrite a model folder left by an earlier run (headless runs cannot answer): git pull the kit (each run now trains into its own folder; old ones are kept) and rerun ONLY_STEPS=isaac_mimic RUN_MIMIC=1; the generated demos are reused, so it starts at training"
+  elif _hint_has 'EOFError: EOF when reading a line'; then
+    if _hint_has 'libero'; then echo "LIBERO asked its first-run question (no config.yaml): git pull the kit (it writes LIBERO's default config itself) and rerun; see the libero_config line in the log"
+    else echo "a tool asked an interactive question, but headless steps have no keyboard: see the prompt just above the EOFError in the log"; fi
+  elif _hint_has "NamespaceNotFound: Namespace gym_[a-z0-9_]+ not found|Package 'gym_[a-z0-9_]+' required for env|No module named 'gym_(aloha|pusht|xarm)'|gym_(aloha|pusht|xarm) is not installed"; then
+    local sim; sim="$(grep -aoE "Namespace gym_[a-z0-9_]+ not found|Package 'gym_[a-z0-9_]+'|No module named 'gym_[a-z0-9_]+'|gym_[a-z0-9_]+ is not installed" <<<"$body" | tail -n1 | grep -oE 'gym_[a-z0-9_]+' | head -n1)"
+    if _hint_has 'NamespaceNotFound' && _hint_has '_async_worker|async_vector_env|vector/utils/misc\.py'; then
+      echo "$sim was not found inside LeRobot's eval worker processes (LeRobot async-env bug lerobot#4931; the package is probably installed): git pull the kit (it runs the eval in-process and checks $sim before training). The checkpoint was saved: EVAL_ONLY=1 reruns just the eval"
+    else
+      echo "the $sim simulator isn't installed; run scripts/10_install_lerobot.sh (it adds the aloha/pusht extras)"
+    fi
+  elif _hint_has 'gym_[a-z0-9_]+ eval env does not work headless'; then
+    echo "$(grep -aoE 'gym_[a-z0-9_]+ eval env does not work headless' <<<"$body" | tail -n1): see the 'sim probe' line in the log (ALOHA: MUJOCO_GL=osmesa; PushT: SDL_VIDEODRIVER=dummy)"
+  elif _hint_has 'error: unrecognized arguments: '; then
+    err="$(grep -aoE 'error: unrecognized arguments: .*' "$log" | tail -n1 | sed 's/^error: unrecognized arguments: //' | cut -c1-80)"
+    echo "the tool's version does not accept ${err:-a flag the kit passes} (flag renamed upstream): git pull the kit, or check the pinned ref in scripts/lib/versions.env"
+  elif _hint_has 'dpkg was interrupted'; then
+    echo "apt is broken: run sudo dpkg --configure -a, then rerun"
+  elif _hint_has 'Sub-process /usr/bin/dpkg returned an error code'; then
+    echo "a package failed to install/configure: run sudo dpkg --configure -a, read its error, then rerun"
+  elif _hint_has 'Could not get lock|Unable to acquire the dpkg frontend lock|dpkg frontend lock'; then
+    echo "apt is busy (another apt/dpkg or unattended-upgrades is running): wait for it to finish, then rerun"
+  elif _hint_has 'Unmet dependencies|held broken packages|apt --fix-broken install'; then
+    echo "apt has broken dependencies: run sudo apt --fix-broken install, then rerun"
+  elif [ "$rc" = 100 ] && [ "$step" = base_deps ]; then
+    echo "apt-get failed (rc=100): see the 'E:' lines in the log, fix apt, then rerun bash scripts/01_base_deps.sh"
+  elif _hint_has 'no kernel image is available|sm_120 is not compatible|CUDA capability sm_120'; then
+    echo "torch in this env has no Blackwell (sm_120) kernels: needs a cu128 build (docs/WSL2.md section 5 'Blackwell' applies to any OS)"
+  elif _hint_has 'CUDA out of memory|OutOfMemoryError|RESOURCE_EXHAUSTED'; then
+    if [ "$wsl" = 1 ]; then echo "GPU out of memory: lower BATCH / NUM_ENVS, close other GPU apps (on Windows too)"
+    else echo "GPU out of memory: lower BATCH / NUM_ENVS, or free the GPU (nvidia-smi shows other processes); GPUS=1 picks the other card"; fi
+  elif [ "$rc" = 137 ] || _hint_has '(^|[^a-z])Killed$|MemoryError|Cannot allocate memory'; then
+    if [ "$wsl" = 1 ]; then echo "killed for RAM: raise memory/swap in %UserProfile%\\.wslconfig (docs/WSL2.md), then 'wsl --shutdown'"
+    else echo "killed for RAM (OOM killer): close other programs or add swap (check: free -h; sudo dmesg | grep -i oom)"; fi
+  elif _hint_has 'No space left on device'; then
+    if [ "$wsl" = 1 ]; then echo "disk full: free space or set RSP_HOME to a bigger Linux-side disk"
+    else echo "disk full: free space (df -h) or set RSP_HOME to a bigger disk"; fi
+  elif _hint_has '401 Client Error|403 Client Error|gated repo|GatedRepoError|Access to model .* is restricted'; then
     echo "gated Hugging Face model: accept its license on the Hub, then: ~/robot-sim/envs/lerobot/bin/hf auth login"
-  elif grep -aqiE 'vk::|Vulkan|ErrorIncompatibleDriver|ErrorInitializationFailed|failed to find a rendering device' "$log" 2>/dev/null; then
-    echo "Vulkan rendering unavailable (normal on WSL2): see TROUBLESHOOTING.md 'WSL2: Vulkan'"
-  elif grep -aqiE 'EGL|eglInitialize|GLContext|OSMesa' "$log" 2>/dev/null; then
+  elif _hint_has 'vk::|vkCreateInstance|ErrorExtensionNotPresent|ErrorIncompatibleDriver|ErrorInitializationFailed|failed to find a rendering device|Vulkan (error|is not|not (available|supported|found))|(no|cannot find a) (compatible )?Vulkan'; then
+    if [ "$wsl" = 1 ]; then echo "Vulkan rendering unavailable (normal on WSL2): see TROUBLESHOOTING.md 'WSL2: Vulkan'"
+    else echo "Vulkan rendering unavailable: check 'vulkaninfo --summary' and that /usr/share/vulkan/icd.d/nvidia_icd.json exists (TROUBLESHOOTING.md 'SAPIEN/Vulkan errors')"; fi
+  elif tail -n 80 <<<"$body" | grep -aqiE 'eglInitialize|eglGetDisplay|EGL_NOT_INITIALIZED|EGLError|Cannot initialize a EGL|GLContext|OSMesa(CreateContext| not| error)|libOSMesa\.so.*(cannot|No such)'; then
+    # only the end of the log (where the real error is): an EGL probe line early in a long log is not the failure
     echo "OpenGL/EGL problem: try MUJOCO_GL=osmesa (sudo apt install libosmesa6) - TROUBLESHOOTING.md"
-  elif grep -aqiE 'Isaac Lab not (found|detected)' "$log" 2>/dev/null; then
+  elif _hint_has 'Isaac Lab not (found|detected)'; then
     echo "Isaac Lab not found: export ISAACLAB_PATH=/path/to/IsaacLab (or SKIP_ISAAC=1)"
-  elif grep -aqiE 'Run scripts/1[0-9]_install' "$log" 2>/dev/null; then
+  elif _hint_has 'Run scripts/1[0-9]_install'; then
     echo "framework not installed: run its scripts/1x_install_*.sh step first"
   elif [ "$rc" = 124 ]; then
     echo "timed out (STEP_TIMEOUT); first runs download models/datasets and compile shaders - rerun or raise the timeout"
   else
     case "$step" in
-      system_check) echo "fix the [FAIL] lines at the top of the log" ;;
-      base_deps)    echo "apt/sudo or network problem; rerun: bash scripts/01_base_deps.sh" ;;
-      isaac_*)      echo "see docs/ISAAC_LAB.md; WSL2 is not officially supported by NVIDIA" ;;
-      *)            echo "see the last 40 lines of the log" ;;
+      base_deps) echo "apt/sudo or network problem; rerun: bash scripts/01_base_deps.sh" ;;
+      isaac_*)
+        # 02_isaaclab_validate.sh prints 'key error: ...' for a failed smoke run (taken from the smoke log)
+        err="$(grep -aE '^ *key error: ' "$log" 2>/dev/null | tail -n1 | sed 's/^ *key error: //' | cut -c1-140)"
+        [ -z "$err" ] && err="$(grep -aE '\[FAIL\] ' "$log" 2>/dev/null | tail -n1 | sed 's/.*\[FAIL\][^ ]* *//' | cut -c1-140)"
+        if [ "$wsl" = 1 ]; then echo "${err:+Isaac error: $err; }see the smoke log tail in the step log and docs/ISAAC_LAB.md (WSL2 is not officially supported by NVIDIA)"
+        else echo "${err:+Isaac error: $err; }see the smoke log tail in the step log and docs/ISAAC_LAB.md"; fi ;;
+      *) err="$(grep -aE '\[FAIL\] ' "$log" 2>/dev/null | tail -n1 | sed 's/.*\[FAIL\][^ ]* *//' | cut -c1-140)"
+         echo "${err:+the step stopped: $err; }see the last 40 lines of the log" ;;
     esac
   fi
 }

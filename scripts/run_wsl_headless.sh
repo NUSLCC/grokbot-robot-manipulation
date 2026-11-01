@@ -13,8 +13,10 @@
 #   SKIP_ISAAC=1         skip the Isaac Sim / Isaac Lab steps
 #   ISAAC_PHYSX=0        skip the extra Isaac Sim PhysX smoke (Kit; the step most likely to fail on WSL2)
 #   RUN_MIMIC=1          also run the Isaac Lab Mimic pipeline (needs the 'mimic' extra in your Isaac env)
+#   MIMIC_STAGE=play     isaac_mimic: run only that stage (all|annotate|generate|train|play; play = newest checkpoint)
 #   SKIP_STEPS="a b"     skip steps by name    ONLY_STEPS="a b"   run only these steps
 #   SKIP_INSTALL=1       do not run base_deps / *_install steps (assume already installed)
+#   EVAL_ONLY=1          act_aloha / diffusion_pusht: only re-evaluate the newest saved checkpoint (no training)
 #   STEP_TIMEOUT=14400   per-step timeout in seconds (0 = none, default)
 #   RUNS_DIR=path        where runs/<timestamp> goes (default: <repo>/runs)
 #   RSP_DRY_RUN=1        do not run real steps: replay tests/fixtures logs (CI / control-flow check).
@@ -57,7 +59,7 @@ else
 fi
 
 # ---- step table: name | kind (metric parser) | depends-on | command ----
-STEPS=(); declare -A KIND DEP CMD STATUS SECS PEAK METRIC LOGF HINT
+STEPS=(); declare -A KIND DEP CMD STATUS SECS PEAK METRIC LOGF HINT BLOCKED
 add() { STEPS+=("$1"); KIND[$1]="$2"; DEP[$1]="$3"; CMD[$1]="$4"; }
 q() { local a out=""; for a in "$@"; do out+=" $(printf '%q' "$a")"; done; echo "$out"; }
 add system_check   syscheck       ""               "bash $(q "$D/00_check_system.sh")"
@@ -65,7 +67,9 @@ add base_deps      install        ""               "bash $(q "$D/01_base_deps.sh
 add isaac_validate isaac_validate ""               "env SMOKE_PHYSICS=default $(q "${Q_ISAAC[@]}") bash $(q "$D/02_isaaclab_validate.sh")"
 add isaac_physx_smoke isaac_validate isaac_validate "env SMOKE_PHYSICS=isaacsim_physx $(q "${Q_ISAAC[@]}") bash $(q "$D/02_isaaclab_validate.sh")"
 add isaac_rl_franka isaac_rl      isaac_validate   "env $(q "${Q_RL[@]}") bash $(q "$D/train/isaaclab_rl_franka.sh")"
-add isaac_mimic    install        isaac_validate   "env $(q "${Q_MIMIC[@]}") bash $(q "$D/train/isaaclab_mimic_stack.sh")"
+# MIMIC_STAGE (or STAGE) = all|annotate|generate|train|play picks the Mimic stage(s); play reuses the newest checkpoint.
+Q_MIMIC+=("STAGE=${MIMIC_STAGE:-${STAGE:-all}}")
+add isaac_mimic    isaac_mimic    isaac_validate   "env $(q "${Q_MIMIC[@]}") bash $(q "$D/train/isaaclab_mimic_stack.sh")"
 add lerobot_install install       base_deps        "bash $(q "$D/10_install_lerobot.sh")"
 add act_aloha      lerobot_train  lerobot_install  "env $(q "${Q_ACT[@]}") bash $(q "$D/train/lerobot_act_aloha.sh")"
 add diffusion_pusht lerobot_train lerobot_install  "env $(q "${Q_DP[@]}") bash $(q "$D/train/lerobot_diffusion_pusht.sh")"
@@ -88,6 +92,10 @@ skip_reason() {
   if [ "$SKIP_INSTALL" = 1 ]; then case "$s" in base_deps|*_install) echo "SKIP_INSTALL=1"; return ;; esac; fi
   local d="${DEP[$s]}"
   if [ -n "$d" ] && [ "${STATUS[$d]:-}" = FAIL ]; then echo "needs $d (FAILED)"; return; fi
+  # A dependency that was SKIPPED because it could not run (its own dependency failed/skipped, or it exited 77)
+  # blocks this step too. A dependency skipped by the user's choice (ONLY_STEPS / SKIP_STEPS / SKIP_INSTALL /
+  # SKIP_ISAAC / optional) is assumed to be done already, so this step still runs.
+  if [ -n "$d" ] && [ "${STATUS[$d]:-}" = SKIP ] && [ "${BLOCKED[$d]:-0}" = 1 ]; then echo "needs $d (SKIPPED)"; return; fi
   echo ""
 }
 
@@ -106,8 +114,12 @@ sampler_start() {
 }
 sampler_stop() {
   if [ -n "$SAMPLER_PID" ]; then kill "$SAMPLER_PID" 2>/dev/null; wait "$SAMPLER_PID" 2>/dev/null; fi
-  if [ -s "$1" ]; then awk -F, '{gsub(/ /,"",$2); if($2+0>m)m=$2+0}END{print m+0}' "$1"; else echo "n/a"; fi
+  if [ -s "$1" ]; then awk -F, -v vis="$PEAK_GPUS" 'BEGIN{n=split(vis,a,",");for(i=1;i<=n;i++)ok[a[i]]=1}
+    {gsub(/ /,"",$1); gsub(/ /,"",$2); if((vis==""||($1 in ok)) && $2+0>m)m=$2+0}END{print m+0}' "$1"; else echo "n/a"; fi
 }
+# With CUDA_VISIBLE_DEVICES=<numeric list> (e.g. the two-GPU split) the peak counts only those GPUs, so the other
+# lane's memory is not included. The .gpu.csv files keep every GPU's samples.
+PEAK_GPUS=""; [[ "${CUDA_VISIBLE_DEVICES:-}" =~ ^[0-9]+(,[0-9]+)*$ ]] && PEAK_GPUS="$CUDA_VISIBLE_DEVICES"
 trap '[ -n "$SAMPLER_PID" ] && kill "$SAMPLER_PID" 2>/dev/null' EXIT
 
 dry_rc() { local kv; for kv in $RSP_DRY_RUN_RC; do [ "${kv%%=*}" = "$1" ] && { echo "${kv#*=}"; return; }; done; echo 0; }
@@ -118,13 +130,15 @@ for s in "${STEPS[@]}"; do
   why="$(skip_reason "$s")"
   if [ -n "$why" ]; then
     STATUS[$s]=SKIP; SECS[$s]="-"; PEAK[$s]="-"; METRIC[$s]="$why"; HINT[$s]=""
+    case "$why" in "needs "*) BLOCKED[$s]=1 ;; *) BLOCKED[$s]=0 ;; esac
     log "[$n] $s: SKIP ($why)"; continue
   fi
   log "[$n] $s: running  (log: $lf)"
   sampler_start "$OUT/${s}.gpu.csv"
   t0=$(date +%s)
   if [ "$RSP_DRY_RUN" = 1 ]; then
-    cmd="bash $(q "$RSP_KIT_DIR/tests/fake_step.sh") $(q "$s") $(q "$(dry_rc "$s")")"
+    # first log line = the real command (lets tests check what would run, e.g. STAGE=play for isaac_mimic)
+    cmd="echo $(q "[dry-run] cmd: ${CMD[$s]}"); bash $(q "$RSP_KIT_DIR/tests/fake_step.sh") $(q "$s") $(q "$(dry_rc "$s")")"
   else
     cmd="${CMD[$s]}"
   fi
@@ -136,14 +150,14 @@ for s in "${STEPS[@]}"; do
   PEAK[$s]="$(sampler_stop "$OUT/${s}.gpu.csv")"
   case "$rc" in
     0)  STATUS[$s]=PASS; HINT[$s]="" ;;
-    "$RSP_EXIT_SKIP") STATUS[$s]=SKIP; HINT[$s]="$(grep -aoE 'SKIP: .*' "$lf" | tail -n1 | sed 's/^SKIP: //')" ;;
+    "$RSP_EXIT_SKIP") STATUS[$s]=SKIP; BLOCKED[$s]=1; HINT[$s]="$(grep -aoE 'SKIP: .*' "$lf" | tail -n1 | sed 's/^SKIP: //')" ;;
     *)  STATUS[$s]=FAIL; HINT[$s]="$(failure_hint "$s" "$lf" "$rc") (rc=$rc)" ;;
   esac
   METRIC[$s]="$(extract_metric "${KIND[$s]}" "$lf")"
   [ "${STATUS[$s]}" = FAIL ] && [ "${KIND[$s]}" = install ] && METRIC[$s]="n/a"
   [ "${STATUS[$s]}" = SKIP ] && [ -n "${HINT[$s]}" ] && METRIC[$s]="${HINT[$s]}" && HINT[$s]=""
   log "[$n] $s: ${STATUS[$s]} in ${SECS[$s]}s  peak GPU ${PEAK[$s]} MiB  metric: ${METRIC[$s]}"
-  if [ "${STATUS[$s]}" = FAIL ]; then warn "      hint: ${HINT[$s]}"; tail -n 15 "$lf" | sed 's/^/      | /'; fi
+  if [ "${STATUS[$s]}" = FAIL ]; then warn "      hint: ${HINT[$s]}"; tail -n 20 "$lf" | sed 's/^/      | /'; fi
 done
 
 # ---- summary ----
@@ -175,11 +189,12 @@ SUM="$OUT/SUMMARY.md"
     echo; echo "## Failures"; echo
     for s in "${STEPS[@]}"; do
       [ "${STATUS[$s]}" = FAIL ] || continue
-      echo "### $s"; echo; echo "- Log: \`${LOGF[$s]}\`"; echo "- Hint: ${HINT[$s]}"; echo; echo '```'; tail -n 20 "${LOGF[$s]}"; echo '```'; echo
+      echo "### $s"; echo; echo "- Log: \`${LOGF[$s]}\`"; echo "- Hint: ${HINT[$s]}"; echo; echo '```'; tail -n 40 "${LOGF[$s]}"; echo '```'; echo
     done
   fi
   echo
-  echo "Peak GPU MB = highest memory.used on any GPU while the step ran (whole GPU, sampled every second by nvidia-smi)."
+  if [ -n "$PEAK_GPUS" ]; then echo "Peak GPU MB = highest memory.used on GPU $PEAK_GPUS (CUDA_VISIBLE_DEVICES) while the step ran (whole GPU, sampled every second by nvidia-smi)."
+  else echo "Peak GPU MB = highest memory.used on any GPU while the step ran (whole GPU, sampled every second by nvidia-smi)."; fi
   echo "Rerun only what failed: \`ONLY_STEPS=\"<step> ...\" bash scripts/run_wsl_headless.sh\` (add SKIP_INSTALL=1 if the installs passed)."
 } > "$SUM"
 

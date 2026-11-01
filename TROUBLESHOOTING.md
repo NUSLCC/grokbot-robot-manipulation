@@ -7,6 +7,17 @@ This page lists common issues and fixes observed while hardening the kit. See al
   - Fix: Do not change the NVIDIA driver. When a CUDA toolkit is required for building, install a side-by-side CUDA 12 toolkit only (never the driver): INSTALL_CUDA_TOOLKIT=12-4 bash scripts/01_base_deps.sh. For that script only, set CUDA_HOME=/usr/local/cuda-12.4.
 - Ubuntu 22.04 vs 24.04
   - Both are supported. 01_base_deps.sh picks apt names per release (24.04: libgl1 + libglx-mesa0 instead of libgl1-mesa-glx) and skips any name apt does not know. System Python on 24.04 is 3.12 and PEP 668 "externally managed": the kit never pip-installs into it, and every framework gets its own Python via uv or conda (3.8 / 3.10 / 3.11 / 3.12).
+- apt is broken: "E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a'" (base_deps rc=100)
+  - Cause: an earlier apt/dpkg run (any package, not this kit) was interrupted, so apt refuses every install.
+  - Fix: 01_base_deps.sh now detects this and runs `sudo dpkg --configure -a` once (logged) before installing; set RSP_AUTO_DPKG_CONFIGURE=0 to only report it. If that command fails, read its error, fix that package, and rerun.
+- apt update warnings from third-party sources (e.g. NO_PUBKEY for a vendor repo)
+  - These are printed as one "note: apt source could not be refreshed and was ignored" line per source and never fail the install: every package the kit needs comes from Ubuntu's own archive. Fix the vendor's key separately if you need that repo's updates.
+- Dependent steps in run_wsl_headless.sh
+  - A step whose dependency FAILED, or was SKIPPED because it could not run, is SKIP ("needs X (FAILED)" / "needs X (SKIPPED)"). A dependency skipped on purpose (SKIP_INSTALL=1, SKIP_STEPS, ONLY_STEPS) is assumed already installed, so its dependents still run.
+- Isaac Lab 3.0 smoke fails: AttributeError: 'ModelBuilder' object has no attribute '_cloth_label'
+  - Cause: Newton version mismatch. The Isaac Lab env has a newer newton (seen: 1.8.0.dev0) than Isaac Lab v3.0.0 pins in its pyproject.toml: newton[sim]==1.6.1, warp-lang==1.17.0, mujoco~=3.12.0, mujoco-warp~=3.12.0, newton-usd-schemas>=0.5.0. Isaac Lab 3.0's 'default' physics is Newton, so every default smoke/RL run fails.
+  - Check: 02_isaaclab_validate.sh prints a 'Newton/Warp pins' row (detect-only; the kit never changes the Isaac env).
+  - Fix (run it yourself; it changes the Isaac env): `uv pip install --python <ISAAC_PY> "newton[sim]==1.6.1" "mujoco~=3.12.0" "mujoco-warp~=3.12.0" "warp-lang==1.17.0" "newton-usd-schemas>=0.5.0"` (ISAAC_PY is shown by 00_check_system.sh, e.g. ~/IsaacLab/.venv/bin/python). Then rerun `ONLY_STEPS="isaac_validate isaac_physx_smoke isaac_rl_franka" SKIP_INSTALL=1 bash scripts/run_wsl_headless.sh`.
 - PYTHONPATH/LD_LIBRARY_PATH leaks from Isaac scripts
   - Symptom: Other envs break after using Isaac; import conflicts, missing GL libs.
   - Fix: Ensure your shell does not source setup_conda_env.sh or setup_python_env.sh automatically. The kit strips these via clean_python_env(). Open a fresh shell.
@@ -56,3 +67,76 @@ WSL2 (Windows 11, Ubuntu 24.04) - see docs/WSL2.md
   - Fix: Plug in the charger, set Windows power mode to "Best performance", and keep the laptop cool. Sustained clocks on a laptop GPU are lower than on a desktop card.
 - Isaac Lab 3.0: "unrecognized arguments: --headless"
   - Fix: Isaac Lab 3.0 removed --headless. Use `--viz none` (the kit passes ISAACLAB_HEADLESS_FLAGS="--viz none --livestream 0").
+
+## LeRobot: `lerobot-train: error: unrecognized arguments: --eval_freq=...`
+LeRobot renamed flags between releases: `--eval_freq` became `--env_eval_freq` in v0.6.0, and on `main` after v0.6.1
+`--wandb.*` became `--trackio.*`. The train scripts now read `lerobot-train --help` and pass the spelling your
+installed LeRobot accepts (`lerobot-train flags: ...` line in the step log). The kit pins `LEROBOT_REF=v0.6.1`
+(scripts/lib/versions.env); `LEROBOT_REF=main` also works.
+
+## LIBERO: `EOFError: EOF when reading a line` (libero/libero/__init__.py)
+On first import LIBERO asks "Do you want to specify a custom path for the dataset folder? (Y/N)" if its
+`config.yaml` is missing; headless steps have no keyboard, so `input()` fails. The kit now writes LIBERO's default
+config (what answering N writes) per env, under `$RSP_HOME/config/libero/<env>/config.yaml`, and exports
+`LIBERO_CONFIG_PATH` (install steps and every LIBERO eval). To use your own config, export `LIBERO_CONFIG_PATH`.
+Any other `EOFError` in a step log means some tool asked an interactive question; the prompt is just above it.
+
+## LeRobot eval: `NamespaceNotFound: Namespace gym_aloha not found` / `gym_pusht not found` after training
+Training finished, then the sim eval failed while building its envs. In LeRobot v0.6.1 (and `main` as of 2026-10)
+this is usually NOT a missing package: with `eval.batch_size > 1` LeRobot builds an async vector env with
+multiprocessing "forkserver", and those fresh worker processes never import `gym_aloha` / `gym_pusht`, so
+`gym.make` cannot find the namespace (upstream issue huggingface/lerobot#4931; the traceback goes through
+`gymnasium/vector/utils/misc.py` / `_async_worker`). The kit now:
+- runs LeRobot's sim evals in-process (`--eval.use_async_envs=false`; `LEROBOT_ASYNC_EVAL=1` restores LeRobot's default),
+- checks before training that the sim imports, builds and renders headless (`sim probe ok: ...` line in the step log),
+  and installs a missing `aloha` / `pusht` extra on the spot (`LEROBOT_AUTO_EXTRAS=0` makes it fail fast instead),
+- verifies both sims in `scripts/10_install_lerobot.sh` (rerunning it only adds what is missing).
+
+The checkpoint is saved before the eval, so a finished training does not need to be redone:
+`EVAL_ONLY=1 bash scripts/train/lerobot_act_aloha.sh` (or `lerobot_diffusion_pusht.sh`) evaluates the newest
+`$RSP_HOME/checkpoints/<name>_*/checkpoints/last/pretrained_model` (or `CKPT=<that dir>`). Through the runner:
+`EVAL_ONLY=1 ONLY_STEPS="act_aloha diffusion_pusht" bash scripts/run_wsl_headless.sh`.
+
+Headless rendering: ALOHA renders with MuJoCo (`MUJOCO_GL=egl`, OSMesa fallback chosen automatically on WSL2);
+PushT renders with pygame (`SDL_VIDEODRIVER=dummy`, set by the runner and the script).
+
+GPU memory of `diffusion_pusht`: the step's GPU number is the whole card's `memory.used`, and the user's 22 GB peak
+came from training (the eval had not started). The model is 263M parameters (~1 GB fp32; ~4 GB with grads + Adam),
+and forward+backward activations at batch 32 measured under 1 GB on CPU, so most of that peak is PyTorch's cached
+memory and cuDNN autotune workspaces (LeRobot sets `cudnn.benchmark=True`), not a hard requirement: cuDNN picks
+algorithms that fit the free memory. The diffusion script sets `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+(if unset) to keep that cache compact. If a shared 24 GB card still runs out: `BATCH=16`, or add
+`--cudnn_deterministic=true` by hand (slower).
+
+## Isaac Lab Mimic: `EOFError` after "model directory ... already exists! overwrite? (y/n)"
+
+robomimic asks this with `input()` when the experiment folder from an earlier run exists; headless runs cannot
+answer. Fixed: each run trains into its own folder (`bc_rnn_low_dim_franka_stack-<timestamp>`), and an existing
+`MIMIC_EXP_NAME` folder is moved to `<dir>.bak-<timestamp>` (never deleted). `git pull`, then rerun only Mimic:
+
+```bash
+RUN_MIMIC=1 SKIP_INSTALL=1 ONLY_STEPS=isaac_mimic bash scripts/run_wsl_headless.sh
+```
+
+The rerun reuses `generated_dataset.hdf5` when it holds at least `N_GEN` demos (`REUSE_DATA=0` regenerates).
+
+## Isaac Lab Mimic: `[FAIL] No robomimic checkpoint found` after training finished
+Annotate, generate and train all finished (`finished run successfully!`, `save checkpoint to .../model_epoch_N.pth`),
+then the play stage could not find the model. robomimic (Isaac Lab release/3.0.0) saves to
+`$ISAACLAB_PATH/logs/robomimic/<task>/<experiment>/<timestamp>/models/model_epoch_N.pth`, one folder deeper than
+the old lookup searched. The kit now takes the newest `*/models/*.pth` at any depth under
+`logs/robomimic/IsaacContrib-Stack-Cube-Franka-IK-Rel` (then anywhere under `logs/robomimic`), and prints
+`[ OK ] robomimic checkpoint: <path>` before playing. `CHECKPOINT=/path/model_epoch_N.pth` overrides it.
+
+The dataset and the checkpoint are kept, so rerun only the play stage (no download, annotate, generate or training):
+```bash
+RUN_MIMIC=1 QUICK=1 MIMIC_STAGE=play ONLY_STEPS=isaac_mimic bash scripts/run_wsl_headless.sh
+# or directly: STAGE=play N_ROLLOUTS=5 bash scripts/train/isaaclab_mimic_stack.sh
+```
+`MIMIC_STAGE` (or `STAGE`) = `all|annotate|generate|train|play`. `QUICK=1` plays 5 rollouts, otherwise 50.
+The step's metric is play.py's result (`Successful trials: K, out of N trials` / `Success rate: x`), e.g.
+`play success 40.0% (2/5 rollouts)`. A QUICK model (20 demos, 20 epochs) is not expected to stack well.
+
+The `OpenGL/EGL problem` hint that this failure printed was wrong: Isaac Sim's headless start-up warnings
+(`[Warning] [omni.platforminfo.plugin] failed to open the default display. Can't verify X Server version.`) and
+robomimic's `egl-probe` dependency are normal on a machine without a display, and the hints now ignore them.

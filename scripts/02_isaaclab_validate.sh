@@ -23,7 +23,7 @@ isaac_skip_if_requested
 
 OUT="$RSP_LOGS/isaaclab_validate_$(stamp)"; mkdir -p "$OUT"
 exec > >(tee "$OUT/report.txt") 2>&1
-RESULTS=()
+RESULTS=(); FAILED_LOGS=()
 rec() { RESULTS+=("$1|$2|$3"); }
 
 log "== Detecting Isaac Lab / Isaac Sim =="
@@ -49,7 +49,8 @@ def v(p):
     except Exception: return None
 info = {"python": sys.version.split()[0], "executable": sys.executable}
 for p in ["isaaclab","isaaclab-tasks","isaaclab-rl","isaaclab-mimic","isaacsim","isaacsim-kernel","torch","torchvision",
-          "warp-lang","transformers","numpy","rsl-rl-lib","skrl","stable-baselines3","rl-games","robomimic","newton","rlinf"]:
+          "warp-lang","transformers","numpy","rsl-rl-lib","skrl","stable-baselines3","rl-games","robomimic","newton","rlinf",
+          "mujoco","mujoco-warp","newton-usd-schemas"]:
     info[p] = v(p)
 try:
     import torch
@@ -83,6 +84,9 @@ PY
     else rec "Isaac Sim" WARN "no isaacsim wheel in env and no _isaac_sim / ~/isaacsim found; Newton-only tasks still work"; fi
     [ "$(j isaaclab-mimic)" != "None" ] && rec "isaaclab_mimic" PASS "$(j isaaclab-mimic)" || rec "isaaclab_mimic" INFO "not installed (only needed for Mimic workflow)"
     [ "$(j robomimic)" != "None" ] && rec "robomimic" PASS "$(j robomimic)" || rec "robomimic" INFO "not installed (Mimic BC training needs the 'mimic' extra)"
+    # Newton/Warp/MuJoCo pins (Isaac Lab 3.0 default physics = Newton); detect-only, prints the fix command
+    IFS='|' read -r PR PD <<<"$(newton_pins_check "$V" "${ISAAC_PY:-}" "$(j newton)" "$(j warp-lang)" "$(j mujoco)" "$(j mujoco-warp)" "$(j newton-usd-schemas)")"
+    rec "Newton/Warp pins" "$PR" "$PD"
     [ "$(j rsl-rl-lib)" != "None" ] && rec "rsl_rl" PASS "$(j rsl-rl-lib)" || rec "rsl_rl" WARN "rsl-rl-lib not found; smoke test uses rsl_rl"
   else
     rec "Python probe" FAIL "see $OUT/probe.err"; cat "$OUT/probe.err" | tail -n 20
@@ -104,7 +108,7 @@ if [ "${SKIP_SMOKE:-0}" = 1 ]; then warn "SKIP_SMOKE=1"; else
     grep -oE 'Isaac(Contrib)?-[A-Za-z0-9-]*(Franka|Lift|Reach|Drawer|Stack|Allegro|Cabinet|Mimic)[A-Za-z0-9-]*' "$OUT/list_envs.txt" | sort -u > "$OUT/manipulation_tasks.txt" || true
     rec "list_envs" PASS "$(wc -l < "$OUT/manipulation_tasks.txt") manipulation task IDs -> $OUT/manipulation_tasks.txt"
     head -n 40 "$OUT/manipulation_tasks.txt" | sed 's/^/  /'
-  else rec "list_envs" FAIL "see $OUT/list_envs.txt"; tail -n 30 "$OUT/list_envs.txt"; fi
+  else rec "list_envs" FAIL "see $OUT/list_envs.txt"; FAILED_LOGS+=("$OUT/list_envs.txt"); fi
 
   for task in $SMOKE_TASKS; do
     for phys in $SMOKE_PHYSICS; do
@@ -118,7 +122,7 @@ if [ "${SKIP_SMOKE:-0}" = 1 ]; then warn "SKIP_SMOKE=1"; else
         > "$OUT/smoke_$tag.log" 2>&1 || rc=$?
       peak="$(gpu_monitor_stop)"; dt=$(( $(date +%s) - t0 ))
       if [ "$rc" = 0 ]; then rec "smoke $task [$phys]" PASS "${dt}s, peak GPU mem ${peak} MiB (whole GPU)"
-      else rec "smoke $task [$phys]" FAIL "rc=$rc after ${dt}s; log $OUT/smoke_$tag.log"; tail -n 25 "$OUT/smoke_$tag.log"; fi
+      else rec "smoke $task [$phys]" FAIL "rc=$rc after ${dt}s; log $OUT/smoke_$tag.log"; FAILED_LOGS+=("$OUT/smoke_$tag.log"); fi
     done
   done
 fi
@@ -134,4 +138,11 @@ Notes:
  * If a physics preset is rejected for a task, run list_envs and check that task's presets.
  * No changes were made to the Isaac environment.
 TIP
+# Failed logs go LAST so the runner's console tail and SUMMARY.md show the real error, not just this table.
+for f in ${FAILED_LOGS[@]+"${FAILED_LOGS[@]}"}; do
+  echo; log "== Last 30 lines of $f =="
+  tail -n 30 "$f" 2>/dev/null || echo "  (log missing)"
+  e="$(grep -aE '(Error|Exception|error:|FATAL|Segmentation fault|core dumped)' "$f" 2>/dev/null | grep -avE '^\s*(File "|warnings\.warn)' | tail -n1 | sed 's/^[[:space:]]*//' | cut -c1-160 || true)"
+  [ -n "$e" ] && echo "key error: $e"
+done
 exit "$nfail"

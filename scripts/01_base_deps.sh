@@ -9,6 +9,9 @@
 #   INSTALL_CUDA_TOOLKIT=12-8  also install NVIDIA's cuda-toolkit-<ver> (toolkit only, never the driver).
 #                            Repo is picked automatically: wsl-ubuntu on WSL2, ubuntu2204 / ubuntu2404 on native.
 #                            Blackwell (RTX 5090) builds need 12-8 or newer.
+#   RSP_AUTO_DPKG_CONFIGURE=0  if an earlier apt/dpkg run was interrupted, only report it (default: run
+#                            'sudo dpkg --configure -a' once, logged, then continue)
+# 'apt-get update' problems with third-party sources (e.g. NO_PUBKEY) are printed as one note per source, never fatal.
 # Ubuntu 22.04 and 24.04 are both handled: package names are chosen per release and anything apt does not know
 # is dropped with a warning instead of failing the install. System Python is never pip-installed into (PEP 668);
 # every framework gets its own Python through uv or conda.
@@ -42,7 +45,10 @@ if [ "${SKIP_APT:-0}" != 1 ]; then
   missing=()
   for p in "${APT_PKGS[@]}"; do dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p"); done
   if [ "${#missing[@]}" -gt 0 ]; then
-    sudo apt-get update
+    # An interrupted dpkg run makes apt refuse every install (rc=100): finish it first.
+    dpkg_repair_if_interrupted || exit 100
+    # Third-party sources that fail to refresh (e.g. a missing signing key) are a one-line note, never fatal.
+    apt_update_tolerant
     known=(); unknown=()
     for p in "${missing[@]}"; do if apt_known "$p"; then known+=("$p"); else unknown+=("$p"); fi; done
     [ "${#unknown[@]}" -gt 0 ] && warn "apt has no candidate for: ${unknown[*]} (Ubuntu ${UBU:-?}); skipping them"
@@ -51,7 +57,13 @@ if [ "${SKIP_APT:-0}" != 1 ]; then
   if [ "${#missing[@]}" -gt 0 ]; then
     log "Installing apt packages (Ubuntu ${UBU:-?}): ${missing[*]}"
     # --no-install-recommends keeps apt from pulling unrelated GPU/driver packages
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+    arc=0; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}" || arc=$?
+    if [ "$arc" != 0 ] && dpkg_interrupted; then
+      # dpkg got interrupted between our check and the install (or by it): repair once and retry once.
+      dpkg_repair_if_interrupted || exit 100
+      arc=0; sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}" || arc=$?
+    fi
+    [ "$arc" = 0 ] || { fail "apt-get install failed (rc=$arc); see the 'E:' lines above"; exit "$arc"; }
   else ok "apt packages already installed"; fi
 else warn "SKIP_APT=1: skipping apt"; fi
 
@@ -91,7 +103,8 @@ if [ -n "${INSTALL_CUDA_TOOLKIT:-}" ]; then
       wget -q -O "$tmp/cuda-keyring.deb" "https://developer.download.nvidia.com/compute/cuda/repos/$CUDA_REPO/x86_64/cuda-keyring_1.1-1_all.deb"
       sudo dpkg -i "$tmp/cuda-keyring.deb"; rm -rf "$tmp"
     fi
-    sudo apt-get update
+    dpkg_repair_if_interrupted || exit 100
+    apt_update_tolerant
     # 'cuda-toolkit-X-Y' does not depend on the driver; never install the 'cuda' or 'cuda-drivers' metapackages.
     sudo apt-get install -y --no-install-recommends "cuda-toolkit-${INSTALL_CUDA_TOOLKIT}"
   fi

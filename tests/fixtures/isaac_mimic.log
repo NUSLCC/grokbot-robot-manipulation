@@ -1,0 +1,24 @@
+[rsp 00:40:01] Mimic stage: play
+[ OK ] robomimic checkpoint: @RUNTMP@/IsaacLab/logs/robomimic/IsaacContrib-Stack-Cube-Franka-IK-Rel/bc_rnn_low_dim_franka_stack/20261101003144/models/model_epoch_20.pth
+2026-10-31T16:40:05Z [108ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+[INFO] Starting trial 0
+[INFO] Trial 0: True
+
+[INFO] Starting trial 1
+[INFO] Trial 1: False
+
+[INFO] Starting trial 2
+[INFO] Trial 2: True
+
+[INFO] Starting trial 3
+[INFO] Trial 3: False
+
+[INFO] Starting trial 4
+[INFO] Trial 4: False
+
+
+Successful trials: 2, out of 5 trials
+Success rate: 0.4
+Trial Results: [True, False, True, False, False]
+
+[ OK ] Mimic pipeline stage 'play' done. Data in @RUNTMP@/rsp/data/isaaclab_mimic

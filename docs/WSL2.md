@@ -78,6 +78,7 @@ Useful options:
 | `SKIP_ISAAC=1` | skip all Isaac Sim / Isaac Lab steps |
 | `ISAAC_PHYSX=0` | skip the extra Isaac Sim PhysX (Kit) smoke, which is the step most likely to fail on WSL2 |
 | `RUN_MIMIC=1` | also run the Isaac Lab Mimic pipeline (needs the `mimic` extra in your Isaac env) |
+| `MIMIC_STAGE=play` | `isaac_mimic`: run only one Mimic stage (`all\|annotate\|generate\|train\|play`); `play` reuses the newest robomimic checkpoint |
 | `ONLY_STEPS="act_aloha maniskill_ppo"` | rerun selected steps |
 | `SKIP_INSTALL=1` | skip `base_deps` / `*_install` steps (already installed) |
 | `STEP_TIMEOUT=14400` | per-step timeout in seconds |

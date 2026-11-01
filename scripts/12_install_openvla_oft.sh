@@ -68,6 +68,7 @@ log "LIBERO + OFT LIBERO requirements"
 "$PY" -m pip install -e "$LIB"
 "$PY" -m pip install -r "$SRC/experiments/robot/libero/libero_requirements.txt"
 select_mujoco_gl "$PY"
-printf 'N\n' | "$PY" -c "from libero.libero import benchmark; print('LIBERO ok')" || warn "LIBERO import failed (see troubleshooting)"
+libero_config "$PY" openvla-oft   # LIBERO's first-import Y/N question, answered with its defaults
+"$PY" -c "from libero.libero import benchmark; print('LIBERO ok')" </dev/null || warn "LIBERO import failed (see troubleshooting)"
 "$PY" -c "import torch, transformers; print('torch', torch.__version__, torch.version.cuda, 'gpu', torch.cuda.is_available(), '| transformers', transformers.__version__)"
 ok "OpenVLA-OFT env: $PREFIX"

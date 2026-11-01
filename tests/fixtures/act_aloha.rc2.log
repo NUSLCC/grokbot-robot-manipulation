@@ -1,0 +1,6 @@
+[rsp 16:02:33] MUJOCO_GL=egl
+                     [--eval.recording str] [--eval.recording_repo_id str]
+                     [--eval.recording_private str] [--wandb str]
+                     [--wandb.enable str] [--wandb.disable_artifact str]
+                     [--sample_weighting.extra_params str] [--rename_map str]
+lerobot-train: error: unrecognized arguments: --eval_freq=2000

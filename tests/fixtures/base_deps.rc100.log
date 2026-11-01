@@ -1,0 +1,11 @@
+Hit:1 http://sg.archive.ubuntu.com/ubuntu jammy InRelease
+Get:2 http://sg.archive.ubuntu.com/ubuntu jammy-updates InRelease [128 kB]
+Get:3 https://downloads.cursor.com/aptrepo grok-bot InRelease [3,016 B]
+Get:30 http://security.ubuntu.com/ubuntu jammy-security/universe amd64 Packages [1,055 kB]
+Fetched 24.3 MB in 30s (802 kB/s)
+Reading package lists...
+W: An error occurred during the signature verification. The repository is not updated and the previous index files will be used. GPG error: https://downloads.cursor.com/aptrepo grok-bot InRelease: The following signatures couldn't be verified because the public key is not available: NO_PUBKEY 42A1772E62E492D6
+W: Failed to fetch https://downloads.cursor.com/aptrepo/dists/grok-bot/InRelease  The following signatures couldn't be verified because the public key is not available: NO_PUBKEY 42A1772E62E492D6
+W: Some index files failed to download. They have been ignored, or old ones used instead.
+[rsp 15:25:55] Installing apt packages (Ubuntu 22.04): ninja-build git-lfs tmux ffmpeg libavdevice-dev libavfilter-dev libglfw3 libosmesa6 libosmesa6-dev patchelf vulkan-tools xvfb libgl1-mesa-glx
+E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a' to correct the problem. 

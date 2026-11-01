@@ -14,6 +14,23 @@ and WSL2 is auto-detected. Details: [docs/WSL2.md](docs/WSL2.md).
 **Headless, results only (any machine, made for WSL2):** `QUICK=1 bash scripts/run_wsl_headless.sh`, then open
 `runs/<timestamp>/SUMMARY.md`. See [docs/WSL2.md](docs/WSL2.md) for the Windows 11 setup and what works, falls back or is skipped.
 
+## Validation status
+
+**Full write-up: [docs/VALIDATION.md](docs/VALIDATION.md)** (every step, quick vs full-length settings, results,
+issues found and fixed, how to rerun). Also browsable as a docs site: `mkdocs build --strict` / `mkdocs serve`
+([how to publish](docs/VALIDATION.md#docs-site)).
+
+| Machine | Quick run (`QUICK=1`) | Full-length run |
+|---|---|---|
+| lcc-TRX40, 2x RTX 3090, Ubuntu 22.04 (`dual3090`) | **14/14 steps PASS** (Oct 31 – Nov 1, 2026) | **10/10 PASS** (Nov 1, 2026; Mimic via rerun after fix `5d1f64e`) |
+| RTX 4090 workstation (`rtx4090`) | not run yet | not run yet |
+| RTX 5090 Laptop, WSL2 (`rtx5090_laptop_wsl`) | not run yet | not run yet |
+
+Quick-run highlights on the dual 3090: Isaac Lab 3.0 smoke tests on Newton and PhysX, Franka RL, the Mimic
+pipeline (annotate, generate, robomimic BC, play), ACT/ALOHA and Diffusion/PushT train + eval, SmolVLA on LIBERO (90%),
+π0.5 on LIBERO via openpi (90% of 10 episodes, 21.7 GB), ManiSkill3 PPO (success_once 0.875). Quick-mode success
+rates only check that each pipeline works; they are not policy scores.
+
 ## Quick start
 
 ```bash
@@ -35,9 +52,10 @@ from the Notion review (VLAs, imitation learning, RL fine-tuning) on **one works
 | Driver | 595 (you reported it) |
 | Already installed | **Isaac Sim 6.2.0 + Isaac Lab 3.0.0 (release/3.0.0).** The kit never reinstalls or changes them. |
 
-> **Status: not run on a GPU yet.** All scripts were written from the official repos and docs as of 2026-10-29
-> and pass a `bash -n` syntax check. None of them has run on a GPU machine. Run them in order, and treat the
-> first run of each one as the real test. Items marked **(unverified)** are our best reading of the sources, not measured facts.
+> **Status:** the headless runner's 14 steps passed a quick run on the dual RTX 3090 workstation (Oct 31 – Nov 1, 2026);
+> see [docs/VALIDATION.md](docs/VALIDATION.md). Scripts outside the runner (OpenVLA-OFT, GR00T, SimplerEnv, RoboTwin,
+> RLinf, SimpleVLA-RL, Arena, the VLA fine-tuning scripts) have not run on a GPU yet. Items marked **(unverified)** are
+> our best reading of the sources, not measured facts.
 
 ---
 

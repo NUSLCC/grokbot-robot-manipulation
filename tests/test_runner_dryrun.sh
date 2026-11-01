@@ -9,7 +9,7 @@ export PATH="$T/fake-bin:$PATH" FAKE_GPU_USED=4321
 mkdir -p "$TMP/eval_smolvla_libero_x"; echo '{"overall":{"pc_success":85.0}}' > "$TMP/eval_smolvla_libero_x/eval_info.json"
 nfail=0
 # Guard: the dry run replays tests/fixtures/<step>.log; a missing fixture silently turns every metric into n/a.
-for f in act_aloha base_deps diffusion_pusht isaac_physx_smoke isaac_rl_franka isaac_validate lerobot_install \
+for f in act_aloha base_deps diffusion_pusht isaac_mimic isaac_physx_smoke isaac_rl_franka isaac_validate lerobot_install \
          maniskill_install maniskill_ppo openpi_install openpi_pi05_libero_eval smolvla_libero_eval system_check; do
   if [ ! -s "$T/fixtures/$f.log" ]; then echo "FAIL - fixture missing: tests/fixtures/$f.log (is it git-ignored?)"; nfail=$((nfail+1)); fi
 done
@@ -54,5 +54,96 @@ ONLY_STEPS="system_check maniskill_ppo" bash "$K/scripts/run_wsl_headless.sh" > 
 S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
 check "ONLY_STEPS runs selected"      "$(row maniskill_ppo)" PASS
 check "ONLY_STEPS skips others"       "$(row act_aloha)" SKIP
+# Native Linux (dual 3090, as on the user's workstation): interrupted dpkg in base_deps + failed Isaac smoke.
+# Everything that depends on base_deps must be SKIP (transitively: installs SKIP -> their train/eval steps SKIP).
+rm -rf "$RUNS_DIR"
+RSP_FORCE_WSL=0 FAKE_GPU_NAME="NVIDIA GeForce RTX 3090" FAKE_GPU_CC=8.6 FAKE_GPU_COUNT=2 \
+  RSP_DRY_RUN_RC="base_deps=100 isaac_validate=1" bash "$K/scripts/run_wsl_headless.sh" > "$TMP/out4.txt" 2>&1; rc=$?
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+hint() { grep -A3 "^### $1\$" "$S" | grep '^- Hint:' | sed 's/^- Hint: //'; }
+check "native: exit code = 2 FAILs"       "$rc" 2
+check "native: platform line"             "$(grep -c '^- Platform: native Linux' "$S")" 1
+check "native: base_deps FAIL"            "$(row base_deps)" FAIL
+check "native: dpkg hint"                 "$(hint base_deps)" "apt is broken: run sudo dpkg --configure -a, then rerun (rc=100)"
+check "native: no Vulkan hint for apt log" "$(hint base_deps | grep -ci vulkan)" 0
+check "native: lerobot_install SKIP"      "$(met lerobot_install)" "needs base_deps (FAILED)"
+for st in act_aloha diffusion_pusht smolvla_libero_eval; do
+  check "native: $st SKIP (skipped dep)"  "$(row $st) / $(met $st)" "SKIP / needs lerobot_install (SKIPPED)"
+done
+check "native: openpi eval SKIP"          "$(met openpi_pi05_libero_eval)" "needs openpi_install (SKIPPED)"
+check "native: maniskill_ppo SKIP"        "$(met maniskill_ppo)" "needs maniskill_install (SKIPPED)"
+check "native: isaac_rl SKIP"             "$(met isaac_rl_franka)" "needs isaac_validate (FAILED)"
+check "native: Newton mismatch hint"     "$(hint isaac_validate)" \
+  "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command (rc=1)"
+check "native: smoke log tail in SUMMARY" "$(grep -c "^AttributeError: 'ModelBuilder' object has no attribute '_cloth_label'" "$S")" 1
+check "native: pins row + fix in SUMMARY" "$(grep -c '^Newton/Warp pins .*WARN.*uv pip install --python' "$S")" 1
+check "native: no WSL wording in hints"   "$(grep -E '^- Hint:' "$S" | grep -ciE 'wsl')" 0
+check "native: no WSL wording on console" "$(grep -E 'hint:|WSL2' "$TMP/out4.txt" | grep -ciE 'wsl2|wslconfig')" 0
+
+# Same failures on simulated WSL2: the Isaac hint now carries the WSL2 support note.
+rm -rf "$RUNS_DIR"
+RSP_FORCE_WSL=1 RSP_DRY_RUN_RC="base_deps=100 isaac_validate=1" bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "wsl: dpkg hint same wording"       "$(hint base_deps)" "apt is broken: run sudo dpkg --configure -a, then rerun (rc=100)"
+check "wsl: Newton hint, no WSL blame"   "$(hint isaac_validate | cut -c1-24)" "Newton version mismatch "
+
+# User-chosen skips do NOT block dependents: SKIP_INSTALL=1 still runs the train/eval steps.
+rm -rf "$RUNS_DIR"
+SKIP_INSTALL=1 SKIP_ISAAC=1 bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1; rc=$?
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "SKIP_INSTALL: exit 0"              "$rc" 0
+check "SKIP_INSTALL: lerobot_install SKIP" "$(row lerobot_install)" SKIP
+check "SKIP_INSTALL: act_aloha still runs" "$(row act_aloha)" PASS
+
+# rc 77 (step skipped itself at runtime) blocks its dependents.
+rm -rf "$RUNS_DIR"
+SKIP_ISAAC=1 RSP_DRY_RUN_RC="lerobot_install=77" bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "rc77 install: act_aloha SKIP"      "$(met act_aloha)" "needs lerobot_install (SKIPPED)"
+
+# The user's real LeRobot failures (renamed --eval_freq, LIBERO first-run prompt) replayed: hints name the cause.
+rm -rf "$RUNS_DIR"
+RSP_FORCE_WSL=0 SKIP_ISAAC=1 RSP_DRY_RUN_RC="act_aloha=2 smolvla_libero_eval=1" bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "renamed flag hint"   "$(hint act_aloha | cut -c1-55)" "the tool's version does not accept --eval_freq=2000 (fl"
+check "LIBERO prompt hint"  "$(hint smolvla_libero_eval | cut -c1-36)" "LIBERO asked its first-run question "
+
+# The rerun of only the failed LeRobot steps: they run although their install dependency is skipped.
+rm -rf "$RUNS_DIR"
+ONLY_STEPS="act_aloha diffusion_pusht smolvla_libero_eval" bash "$K/scripts/run_wsl_headless.sh" > "$TMP/only.txt" 2>&1; rc=$?
+S="$(ls "$RUNS_DIR"/*/SUMMARY.md | sed -n 1p)"
+check "ONLY_STEPS rerun: exit 0"            "$rc" 0
+check "ONLY_STEPS rerun: act_aloha runs"    "$(row act_aloha)" PASS
+check "ONLY_STEPS rerun: smolvla runs"      "$(row smolvla_libero_eval)" PASS
+check "ONLY_STEPS rerun: install skipped"   "$(met lerobot_install)" "not in ONLY_STEPS"
+check "ONLY_STEPS rerun: no sudo prompt"    "$(grep -c 'asking once now' "$TMP/only.txt")" 0
+
+# Unit tests for hints / apt / dpkg / declared dependencies (run from here so the existing CI step covers them).
+# Two-GPU split: with CUDA_VISIBLE_DEVICES=1 the peak counts only GPU 1 (GPU 0's other lane is excluded).
+for cvd in 1 ""; do
+  rm -rf "$TMP/runs_split"
+  env RUNS_DIR="$TMP/runs_split" FAKE_GPU_COUNT=2 FAKE_GPU_USED_LIST=9000,1500 CUDA_VISIBLE_DEVICES="$cvd" ONLY_STEPS=system_check \
+    bash "$K/scripts/run_wsl_headless.sh" > /dev/null 2>&1
+  S2="$(ls "$TMP"/runs_split/*/SUMMARY.md)"
+  p2="$(grep -E '^\| system_check \|' "$S2" | awk -F'|' '{gsub(/ /,"",$5); print $5}')"
+  if [ -n "$cvd" ]; then check "split: peak only from GPU 1" "$p2" 1500; check "split: footer names GPU 1" "$(grep -c 'on GPU 1 (CUDA_VISIBLE_DEVICES)' "$S2")" 1
+  else check "no CUDA_VISIBLE_DEVICES: peak from any GPU" "$p2" 9000; fi
+done
+
+if bash "$T/test_hints_apt.sh" > "$TMP/hints.txt" 2>&1; then echo "ok   - tests/test_hints_apt.sh ($(grep -c '^ok' "$TMP/hints.txt") checks)"
+else grep -v '^ok' "$TMP/hints.txt"; echo "FAIL - tests/test_hints_apt.sh"; nfail=$((nfail+1)); fi
+
+if bash "$T/test_lerobot_libero.sh" > "$TMP/lr.txt" 2>&1; then echo "ok   - tests/test_lerobot_libero.sh ($(grep -c '^ok' "$TMP/lr.txt") checks)"
+else grep -v '^ok' "$TMP/lr.txt"; echo "FAIL - tests/test_lerobot_libero.sh"; nfail=$((nfail+1)); fi
+
+if bash "$T/test_lerobot_sims.sh" > "$TMP/sims.txt" 2>&1; then echo "ok   - tests/test_lerobot_sims.sh ($(grep -c '^ok' "$TMP/sims.txt") checks)"
+else grep -v '^ok' "$TMP/sims.txt"; echo "FAIL - tests/test_lerobot_sims.sh"; nfail=$((nfail+1)); fi
+
+if bash "$T/test_isaac_mimic.sh" > "$TMP/mimic.txt" 2>&1; then echo "ok   - tests/test_isaac_mimic.sh ($(grep -c '^ok' "$TMP/mimic.txt") checks)"
+else grep -v '^ok' "$TMP/mimic.txt"; echo "FAIL - tests/test_isaac_mimic.sh"; nfail=$((nfail+1)); fi
+
+if bash "$T/test_docs_links.sh" > "$TMP/docs.txt" 2>&1; then echo "ok   - tests/test_docs_links.sh ($(grep -c '^ok' "$TMP/docs.txt") checks)"
+else grep -v '^ok' "$TMP/docs.txt"; echo "FAIL - tests/test_docs_links.sh"; nfail=$((nfail+1)); fi
+
 echo; [ "$nfail" = 0 ] && echo "ALL PASS" || echo "$nfail FAILED"
 exit "$nfail"

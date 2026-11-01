@@ -1,0 +1,19 @@
+INFO 2026-10-31 16:46:30 ot_train.py:640 step:2K smpl:64K ep:313 epch:0.31 loss:1.304 grdn:20.1 lr:1.0e-05 updt_s:0.081 data_s:0.002
+INFO 2026-10-31 16:46:31 ot_train.py:718 Eval policy at step 2000
+gym id 'gym_aloha/AlohaTransferCube-v0' not found, attempting to import 'gym_aloha'...
+Process ForkServerProcess-1:
+Traceback (most recent call last):
+  File "/home/lcc/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/home/lcc/robot-sim/envs/lerobot/lib/python3.12/site-packages/gymnasium/vector/async_vector_env.py", line 833, in _async_worker
+    env = env_fn()
+          ^^^^^^^^
+  File "/home/lcc/robot-sim/envs/lerobot/lib/python3.12/site-packages/gymnasium/vector/utils/misc.py", line 47, in __call__
+    return self.fn()
+           ^^^^^^^^^
+  File "/home/lcc/robot-sim/src/lerobot/src/lerobot/envs/configs.py", line 111, in _make_one
+    return gym.make(self.gym_id, disable_env_checker=self.disable_env_checker, **self.gym_kwargs)
+  File "/home/lcc/robot-sim/envs/lerobot/lib/python3.12/site-packages/gymnasium/envs/registration.py", line 346, in _check_namespace_exists
+    raise error.NamespaceNotFound(f"Namespace {ns} not found. {suggestion_msg}")
+gymnasium.error.NamespaceNotFound: Namespace gym_aloha not found. Have you installed the proper package for gym_aloha?
+Training: 100%|##########| 2000/2000 [02:56<00:00, 11.31step/s]

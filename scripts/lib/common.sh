@@ -17,6 +17,18 @@ have() { command -v "$1" >/dev/null 2>&1; }
 RSP_EXIT_SKIP=77
 skip_exit() { warn "SKIP: $*"; exit "$RSP_EXIT_SKIP"; }
 
+# find_robomimic_ckpt ROOT [TASK] -> newest */models/*.pth under ROOT/TASK (any depth); falls back to anywhere
+# under ROOT. Empty output if none. robomimic layout: ROOT/<task>/<experiment>/<timestamp>/models/model_epoch_N.pth
+find_robomimic_ckpt() {
+  local root="$1" task="${2:-}" d c
+  for d in ${task:+"$root/$task"} "$root"; do
+    [ -d "$d" ] || continue
+    c="$(find "$d" -type f -path '*/models/*.pth' -printf '%T@ %p\n' 2>/dev/null | sort -nr | sed -n '1s/^[^ ]* //p')"
+    [ -n "$c" ] && { echo "$c"; return 0; }
+  done
+  return 0
+}
+
 # ver_ge A B  -> true if version A >= B
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | sed -n 1p)" = "$2" ]; }
 
@@ -384,4 +396,164 @@ find_cuda_home() {
     case "$v" in 12.*) ver_ge "$v" "$min" && { echo "$c"; return 0; } ;; esac
   done
   return 1
+}
+
+# ---------------------------------------------------------------------------------------------
+# apt / dpkg health. Test overrides:
+#   RSP_DPKG_UPDATES_DIR=path   read this instead of /var/lib/dpkg/updates
+#   RSP_DPKG_AUDIT_CMD="cmd"    run this instead of 'dpkg --audit'
+# ---------------------------------------------------------------------------------------------
+# dpkg_interrupted -> true if a previous dpkg/apt run was interrupted (apt then refuses every install with
+# "E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a'").
+dpkg_interrupted() {
+  local d="${RSP_DPKG_UPDATES_DIR:-/var/lib/dpkg/updates}" a
+  if [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then return 0; fi
+  a="$(${RSP_DPKG_AUDIT_CMD:-dpkg --audit} 2>/dev/null || true)"
+  [ -n "$a" ]
+}
+# apt_repo_notes FILE -> one line per apt source that failed to refresh, e.g.
+#   https://downloads.cursor.com/aptrepo grok-bot (NO_PUBKEY 42A1772E62E492D6)
+apt_repo_notes() {
+  [ -s "$1" ] || return 0
+  awk '
+    /^(W|E): / {
+      repo=""; why=""
+      if (match($0, /GPG error: [^ ]+ [^ ]+/)) { split(substr($0, RSTART+11, RLENGTH-11), a, " "); repo=a[1] " " a[2] }
+      else if (match($0, /Failed to fetch [^ ]+/)) {
+        u=substr($0, RSTART+16, RLENGTH-16)
+        if (u ~ /\/dists\//) { b=u; sub(/\/dists\/.*/, "", b); s=u; sub(/.*\/dists\//, "", s); sub(/\/.*/, "", s); repo=b " " s }
+        else repo=u
+      }
+      else if (match($0, /[Tt]he repository .[^ ]+ [^ ]+/)) { split(substr($0, RSTART+15, RLENGTH-15), a, " "); repo=a[1] " " a[2] }
+      if (repo == "") next
+      if (match($0, /NO_PUBKEY [0-9A-Fa-f]+/)) why=substr($0, RSTART, RLENGTH)
+      else if ($0 ~ /is not signed/) why="not signed"
+      else if ($0 ~ /does not have a Release file/) why="no Release file"
+      else if ($0 ~ /EXPKEYSIG/) why="expired key"
+      else if ($0 ~ /Could not resolve|Temporary failure resolving/) why="network/DNS"
+      else if (match($0, /[0-9][0-9][0-9] +[A-Za-z][A-Za-z ]*/)) why=substr($0, RSTART, RLENGTH)
+      if (!(repo in seen)) { seen[repo]=why; order[++n]=repo } else if (seen[repo]=="" && why!="") seen[repo]=why
+    }
+    END { for (i=1;i<=n;i++) { r=order[i]; print r (seen[r]!="" ? " (" seen[r] ")" : "") } }' "$1"
+}
+# apt_update_tolerant -> 'sudo apt-get update' that never fails the caller. Sources that cannot be refreshed
+# (third-party repos with a missing key, offline mirrors) are reported as one note each and otherwise ignored:
+# apt keeps their old index files and the kit's packages all come from Ubuntu's own archive.
+apt_update_tolerant() {
+  local f rc=0 line
+  f="$(mktemp)"
+  sudo apt-get update 2>&1 | tee "$f" || rc=$?
+  while IFS= read -r line; do
+    [ -n "$line" ] && warn "note: apt source could not be refreshed and was ignored (not needed by this kit): $line"
+  done < <(apt_repo_notes "$f")
+  [ "$rc" = 0 ] || warn "apt-get update exited $rc; continuing with the package lists apt already has"
+  rm -f "$f"
+  return 0
+}
+# dpkg_repair_if_interrupted -> finish an interrupted dpkg run (sudo dpkg --configure -a) before installing.
+# RSP_AUTO_DPKG_CONFIGURE=0 only reports it and fails instead.
+dpkg_repair_if_interrupted() {
+  dpkg_interrupted || return 0
+  if [ "${RSP_AUTO_DPKG_CONFIGURE:-1}" != 1 ]; then
+    fail "apt is broken: an earlier dpkg/apt run was interrupted. Run: sudo dpkg --configure -a   then rerun this script."
+    return 1
+  fi
+  warn "An earlier dpkg/apt run was interrupted (apt would refuse to install anything)."
+  log "Running: sudo dpkg --configure -a   (finishes the interrupted install; RSP_AUTO_DPKG_CONFIGURE=0 to only report)"
+  if sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a; then ok "dpkg --configure -a finished; apt is usable again"
+  else
+    fail "apt is broken: 'sudo dpkg --configure -a' failed (see its error above). Fix that package, then rerun this script."
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------------------------
+# LIBERO first-import prompt. LIBERO's libero/libero/__init__.py calls input() ("custom dataset path? (Y/N)") when
+# $LIBERO_CONFIG_PATH/config.yaml (default ~/.libero/config.yaml) is missing; headless, that is
+# "EOFError: EOF when reading a line". libero_config writes the config LIBERO would write for "N" (its defaults)
+# without importing libero.libero, and exports LIBERO_CONFIG_PATH. Each env gets its own config dir because
+# each env has its own LIBERO copy (hf-libero wheel in LeRobot, openpi's third_party/libero, OFT's clone, ...);
+# a shared ~/.libero would point one env at another env's files.
+#   libero_config PY NAME [EXTRA_PYTHONPATH]     config dir: $LIBERO_CONFIG_PATH if set, else $RSP_HOME/config/libero/NAME
+# Never fatal: on failure it warns (the step then fails with the EOFError hint).
+# ---------------------------------------------------------------------------------------------
+libero_config() {
+  local py="$1" name="$2" pp="${3:-}" dir
+  dir="${LIBERO_CONFIG_PATH:-$RSP_HOME/config/libero/$name}"
+  if PYTHONPATH="$pp" "$py" "$_RSP_LIB_DIR/libero_config.py" "$dir"; then
+    export LIBERO_CONFIG_PATH="$dir"
+  else
+    warn "could not write the LIBERO config for $name ($py); LIBERO may stop at its first-import question"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------------------------
+# LeRobot CLI compatibility. lerobot-train flag names changed across releases:
+#   <= v0.5.x  --eval_freq          v0.6.0+ --env_eval_freq     (renamed in TrainPipelineConfig)
+#   <= v0.6.x  --wandb.enable       main after v0.6.1: --trackio.enable  (wandb replaced by Trackio)
+# lerobot_train_compat BIN reads `BIN --help` once and sets:
+#   LR_EVAL_FREQ_FLAG   the eval-frequency flag (without '=')
+#   LR_TRACKER_OFF      array: the flag that turns experiment tracking off (empty if the CLI has neither)
+#   LR_EVAL_SYNC        array: --eval.use_async_envs=false when the CLI has it (empty otherwise). LeRobot v0.6.1 (and
+#                       main as of 2026-10) builds async eval envs with multiprocessing "forkserver"; the fresh worker
+#                       processes never import gym_aloha / gym_pusht, so gym.make fails there with
+#                       "NamespaceNotFound: Namespace gym_pusht not found" even though the package IS installed
+#                       (huggingface/lerobot#4931). In-process (sync) envs do not have the bug.
+# Test hook: LEROBOT_TRAIN_HELP_FILE=path uses that file instead of running BIN --help.
+# ---------------------------------------------------------------------------------------------
+_lr_help_has() { grep -qE -- "--$1([^a-zA-Z0-9_.]|\$)" <<<"$2"; }
+lerobot_train_compat() {
+  local bin="$1" help=""
+  if [ -n "${LEROBOT_TRAIN_HELP_FILE:-}" ]; then help="$(cat "$LEROBOT_TRAIN_HELP_FILE")"
+  else help="$(timeout 300 "$bin" --help 2>&1 || true)"; fi
+  if _lr_help_has env_eval_freq "$help"; then LR_EVAL_FREQ_FLAG=--env_eval_freq
+  elif _lr_help_has eval_freq "$help"; then LR_EVAL_FREQ_FLAG=--eval_freq
+  else
+    LR_EVAL_FREQ_FLAG=--env_eval_freq
+    warn "lerobot-train --help lists neither --env_eval_freq nor --eval_freq; using --env_eval_freq (LEROBOT_REF=$LEROBOT_REF)"
+  fi
+  if _lr_help_has wandb.enable "$help"; then LR_TRACKER_OFF=(--wandb.enable=false)
+  elif _lr_help_has trackio.enable "$help"; then LR_TRACKER_OFF=(--trackio.enable=false)
+  else LR_TRACKER_OFF=(); fi
+  if [ "${LEROBOT_ASYNC_EVAL:-0}" != 1 ] && _lr_help_has eval.use_async_envs "$help"; then LR_EVAL_SYNC=(--eval.use_async_envs=false)
+  else LR_EVAL_SYNC=(); fi
+  log "lerobot-train flags: eval every N steps = $LR_EVAL_FREQ_FLAG, tracking off = ${LR_TRACKER_OFF[*]:-(none)}, sim eval envs = ${LR_EVAL_SYNC[*]:-(LeRobot default)}"
+}
+
+# ---------------------------------------------------------------------------------------------
+# lerobot_sim_ensure PY ENV_TYPE [TASK]: make sure the eval simulator gym_<ENV_TYPE> (aloha | pusht) imports,
+# builds and renders headless BEFORE a train script spends minutes training. If the package is missing it installs
+# LeRobot's matching extra into the env (logged; LEROBOT_AUTO_EXTRAS=0 turns that off and fails fast instead).
+# Test hooks: RSP_SIM_PROBE=path replaces lib/lerobot_sim_probe.py; RSP_UV=cmd replaces uv.
+# ---------------------------------------------------------------------------------------------
+lerobot_sim_ensure() {
+  local py="$1" type="$2" task="${3:-}" rc=0 out probe="${RSP_SIM_PROBE:-$_RSP_LIB_DIR/lerobot_sim_probe.py}"
+  out="$(timeout 300 "$py" "$probe" "$type" "$task" 2>&1)" || rc=$?
+  if [ "$rc" = 3 ]; then
+    local src="$RSP_SRC/lerobot"
+    if [ "${LEROBOT_AUTO_EXTRAS:-1}" = 0 ] || [ ! -d "$src" ]; then
+      die "gym_$type (LeRobot's '$type' simulator) is not installed in $(dirname "$(dirname "$py")"): run scripts/10_install_lerobot.sh (it installs the aloha/pusht extras), then rerun"
+    fi
+    warn "gym_$type is not installed; adding LeRobot's '$type' extra now: uv pip install -e \"${src}[${type}]\""
+    ${RSP_UV:-uv} pip install --python "$py" --torch-backend "$LEROBOT_TORCH_BACKEND" -e "${src}[${type}]" \
+      || die "installing lerobot[$type] failed: run scripts/10_install_lerobot.sh and check its log"
+    rc=0; out="$(timeout 300 "$py" "$probe" "$type" "$task" 2>&1)" || rc=$?
+  fi
+  case "$rc" in
+    0) ok "$(grep -a '^sim probe ok' <<<"$out" | tail -n1)" ;;
+    3) die "gym_$type still not importable after installing lerobot[$type]: $(tail -n1 <<<"$out")" ;;
+    *) local why; why="$(grep -a '^sim probe' <<<"$out" | tail -n1)"; [ -n "$why" ] || why="$(tail -n1 <<<"$out")"
+       [ "$type" = aloha ] && why="$why (MuJoCo rendering: try MUJOCO_GL=osmesa; TROUBLESHOOTING.md)"
+       die "gym_$type eval env does not work headless (rc=$rc): $why" ;;
+  esac
+}
+
+# lerobot_latest_ckpt PREFIX -> newest $RSP_CKPT/PREFIX_*/checkpoints/last/pretrained_model (empty if none)
+lerobot_latest_ckpt() {
+  local d best=""
+  for d in "$RSP_CKPT/$1"_*/checkpoints/last/pretrained_model; do
+    [ -f "$d/config.json" ] && best="$d"   # glob sorts by name = by timestamp
+  done
+  echo "$best"
 }

@@ -80,3 +80,4 @@ envs/
 *.bak
 *.tmp
 *.old
+site/

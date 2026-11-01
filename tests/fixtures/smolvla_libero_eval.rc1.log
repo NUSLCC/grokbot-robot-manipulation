@@ -1,0 +1,6 @@
+  File "/home/lcc/robot-sim/src/lerobot/src/lerobot/envs/libero.py", line 30, in <module>
+    from libero.libero import benchmark, get_libero_path
+  File "/home/lcc/robot-sim/envs/lerobot/lib/python3.12/site-packages/libero/libero/__init__.py", line 104, in <module>
+    answer = input(
+             ^^^^^^
+EOFError: EOF when reading a line

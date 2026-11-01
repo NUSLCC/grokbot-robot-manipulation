@@ -9,6 +9,7 @@ PY="$RSP_ENVS/conda/openvla-oft/bin/python"; SRC="$RSP_SRC/openvla-oft"
 [ -x "$PY" ] || die "Run scripts/12_install_openvla_oft.sh first"
 warn_torch_arch "OpenVLA-OFT" "$("$PY" -c 'import torch;print(torch.__version__.split("+")[0])' 2>/dev/null || echo 2.2.0)"
 select_mujoco_gl "$PY"   # EGL, or OSMesa fallback on WSL2
+libero_config "$PY" openvla-oft   # no first-import prompt
 OUT="$RSP_LOGS/eval_oft_libero_$(stamp)"; mkdir -p "$OUT"
 cd "$SRC"
 gpu_monitor_start "$OUT/gpu.csv"
