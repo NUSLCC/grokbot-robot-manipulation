@@ -141,14 +141,15 @@ The `OpenGL/EGL problem` hint that this failure printed was wrong: Isaac Sim's h
 (`[Warning] [omni.platforminfo.plugin] failed to open the default display. Can't verify X Server version.`) and
 robomimic's `egl-probe` dependency are normal on a machine without a display, and the hints now ignore them.
 
-## openpi π0.5 LIBERO: 0% success, `Nan, Inf or huge value in CTRL`
+## openpi π0.5 LIBERO: 0% success, `Nan, Inf or huge value in CTRL`, or a success rate far below the published one
 
-The policy is returning NaN actions. Find out where:
+The policy is getting NaN or wrong weights. Check the checkpoint and host first (CPU only, about 5-10 min):
 
 ```bash
-DIAG_GPUS="0 1" bash scripts/diag/openpi_policy_check.sh      # prints a VERDICT
-nvidia-smi -q -i 1 -d ECC,TEMPERATURE,PERFORMANCE,CLOCK       # health of the suspect card
-sudo dmesg | grep -i xid                                      # driver-reported GPU faults
+DIAG_ONLY=ckpt bash scripts/diag/openpi_policy_check.sh 2>&1 | grep -E '^(FILES|PARAMS)_|differ|VERDICT'
 ```
 
-If one GPU gives finite actions and the other NaN, it is that card, not the checkpoint: run the eval on the good one (`CUDA_VISIBLE_DEVICES=0`).
+- `FILES_GCS_MISMATCH` > 0: the download differs from gs://openpi-assets. Move the cache folder aside and let openpi download it again.
+- `FILES_READS_MATCH=0` or `PARAMS_READS_MATCH=0`: the same files read twice give different data. This is the host (RAM, disk), not the GPU: run memtest86+, look for MCE/EDAC lines (`sudo dmesg | grep -iE 'mce|edac'`), and set the RAM back to stock speed (no XMP).
+
+Then the GPUs: `DIAG_GPUS="0 1" bash scripts/diag/openpi_policy_check.sh` (VRAM, matmul, restore, inference per card). For one card's health: `nvidia-smi -q -i 1 -d ECC,TEMPERATURE,PERFORMANCE,CLOCK` and `sudo dmesg | grep -i xid`.

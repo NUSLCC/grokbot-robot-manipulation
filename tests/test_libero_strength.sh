@@ -94,7 +94,7 @@ check "smolvla 0.0 metric (FAILs in runner)" "$(extract_metric lerobot_eval "$TM
 
 # --- our own server: busy port -> next free port; server stopped on exit; dead server -> fail ---
 python3 -m http.server "$PORT" --bind 127.0.0.1 > /dev/null 2>&1 & BUSY=$!
-for i in $(seq 1 50); do (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null && break; sleep 0.1; done
+for _ in $(seq 1 50); do (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null && break; sleep 0.1; done
 : > "$TMP/args"; : > "$TMP/args.port"; runpi SUITE=libero_spatial TRIALS=1; rc=$?
 check "busy port: exit 0"                   "$rc" 0
 check "busy port: warns"                    "$(grep -c "port $PORT is already in use" "$TMP/pi.log")" 1
@@ -139,6 +139,8 @@ case "$*" in
     echo "PARAMS_NONFINITE=${FAKE_PNF:-0}"; echo "PARAMS_NONFINITE_LEAVES=${FAKE_PNFL:-0}"; echo "PARAMS_READS_MATCH=${FAKE_READS:-1}"; echo "{}" > "${@: -1}" ;;
   *openpi_server_infer.py\ gpu*) g="$CUDA_VISIBLE_DEVICES"; echo "gpu $g prealloc=$XLA_PYTHON_CLIENT_PREALLOCATE" >> "$FAKE_ARGS.gpu"
     eval "set -- \${FAKE_G$g:-0 1 1 1}"; echo "GPU${g}_MEM_ERRORS=$1"; echo "GPU${g}_MATMUL_OK=$2"; echo "GPU${g}_RESTORE_MATCH=$3"; echo "GPU${g}_ACTIONS_FINITE=$4" ;;
+  *openpi_server_infer.py\ files*) echo files >> "$FAKE_ARGS.files"; [ -n "${CUDA_VISIBLE_DEVICES:-}" ] && echo "files saw a GPU" >> "$FAKE_ARGS.files"
+    echo "FILES_GCS_MISMATCH=${FAKE_GCS:-0}"; echo "FILES_READS_MATCH=${FAKE_FREADS:-1}"; echo "FILES_BAD_COPY_DIFFERS=0" ;;
   *openpi_server_infer.py\ cpu*) echo "CPU_ACTIONS_FINITE=${FAKE_CPU:-1}" ;;
   *serve_policy.py*) echo "server on GPU $CUDA_VISIBLE_DEVICES" >> "$FAKE_ARGS.srv"; p=8000; a=("$@"); for i in "${!a[@]}"; do [ "${a[$i]}" = --port ] && p="${a[$((i+1))]}"; done; exec python3 -m http.server "$p" --bind 127.0.0.1 ;;
 esac
@@ -158,7 +160,23 @@ check "diag: GPU health commands for GPU 1" "$(grep -c '^GPU health for GPU 1: n
 check "diag: round trip on the good GPU"    "$(cat "$TMP/args.srv")" "server on GPU 0"
 check "diag: summary has per-GPU keys"      "$(grep -cE '^GPU[01]_(MEM_ERRORS|MATMUL_OK|RESTORE_MATCH|ACTIONS_FINITE)=[0-9]+$' "$TMP/diag.txt")" 16
 rundiag FAKE_G1="17 1 0 0"
-check "diag: VRAM errors + restore mismatch named" "$(verdict | grep -c 'GPU1:\[ VRAM-errors restore-mismatch ; actions NaN\]')" 1
+check "diag: restore mismatch -> host-side decode, not a card" "$(verdict | cut -c1-48)" "params restored onto GPU 1 differ from the CPU r"
+rundiag FAKE_G1="17 1 1 0"
+check "diag: VRAM errors named"             "$(verdict | grep -c 'GPU1:\[ VRAM-errors ; actions NaN\]')" 1
+# lcc-TRX40 2026-11-02: restore mismatch on both cards, finite actions, matmul ok -> host side, never "every GPU failed"
+rundiag FAKE_G0="0 1 0 1" FAKE_G1="0 1 0 1"
+check "diag: restore mismatch on both GPUs" "$(verdict | cut -c1-50)" "params restored onto GPU 0 1 differ from the CPU r"
+check "diag: ...points at host RAM checks"  "$(verdict | grep -c 'memtest86+')" 1
+rundiag FAKE_GCS=3
+check "diag: files differ from GCS"         "$(verdict | cut -c1-58)" "checkpoint files on disk differ from gs://openpi-assets: m"
+rundiag FAKE_FREADS=0 FAKE_GCS=3
+check "diag: unstable file reads win"       "$(verdict | cut -c1-55)" "the same checkpoint file read twice gave different byte"
+rundiag DIAG_ONLY=ckpt
+check "diag: DIAG_ONLY=ckpt: no GPU steps"  "$([ -f "$TMP/args.gpu" ] || [ -f "$TMP/args.srv" ] && echo ran || echo skipped)" skipped
+check "diag: DIAG_ONLY=ckpt: files on CPU"  "$(cat "$TMP/args.files")" files
+check "diag: DIAG_ONLY=ckpt: clean verdict" "$(verdict | cut -c1-40)" "checkpoint files match gs://openpi-asset"
+rundiag DIAG_ONLY=ckpt FAKE_READS=0
+check "diag: decode differs, files fine"    "$(verdict | cut -c1-56)" "files are byte-exact vs gs://openpi-assets and stable, b"
 # NaN on both GPUs, clean hardware: CPU decides
 rundiag FAKE_G0="0 1 1 0" FAKE_G1="0 1 1 0" DIAG_CPU=1
 check "diag: all-GPU NaN, CPU ok -> XLA numerics" "$(verdict | cut -c1-48)" "NaN on every GPU but finite on the CPU, hardware"
@@ -169,8 +187,7 @@ rundiag FAKE_G0="0 1 1 0" FAKE_G1="0 1 1 0"
 check "diag: all-GPU NaN, no CPU run -> asks DIAG_CPU=1" "$(verdict | grep -c 'DIAG_CPU=1')" 1
 # Two CPU reads differ -> host RAM / disk
 rundiag FAKE_READS=0
-check "diag: reads differ -> RAM/disk warning" "$(grep -c '^WARNING: two CPU reads of the same checkpoint files differ' "$TMP/diag.txt")" 1
-check "diag: reads differ: GPU verdict kept" "$(verdict | cut -c1-30)" "policy outputs are finite on G"
+check "diag: decoded reads differ -> host"  "$(verdict | cut -c1-30)" "files are byte-exact vs gs://o"
 # The misleading old verdict: non-finite on-disk values alone are NOT 'corrupted cache'
 rundiag FAKE_PNF=12 FAKE_PNFL=2
 check "diag: nonfinite params alone: no corruption verdict" "$(verdict | grep -ci 'corrupt')" 0

@@ -5,10 +5,12 @@
 #     DIAG_GPUS="0 1"   GPUs to test one at a time (default: every GPU nvidia-smi lists)
 #     DIAG_CPU=1        also run the policy on the CPU (slow; tells model/input NaN from GPU NaN)
 #     DIAG_ROUNDTRIP=0  skip the real server + openpi_client round trip
+#     DIAG_ONLY=ckpt    only steps 1 + 3 (checkpoint files vs GCS, read twice; params decoded DIAG_READS=3 times), ~5-10 min
 # Steps:
 #   1 versions + GPU health (temperature, clocks, throttle reasons, ECC where supported, Xid errors in the kernel log)
 #   2 client: first real LIBERO observation built like examples/libero/main.py           -> OBS_FINITE
-#   3 checkpoint params read from disk on the CPU, twice                                 -> PARAMS_NONFINITE, PARAMS_READS_MATCH
+#   3 checkpoint files hashed twice vs gs://openpi-assets and any .bad* copy -> FILES_GCS_MISMATCH, FILES_READS_MATCH
+#     then params decoded on the CPU 3 times                                             -> PARAMS_NONFINITE, PARAMS_READS_MATCH
 #   4 per GPU: VRAM pattern test, matmul vs CPU, params restored onto the GPU vs the CPU read, policy inference
 #                                     -> GPU<n>_MEM_ERRORS, GPU<n>_MATMUL_OK, GPU<n>_RESTORE_MATCH, GPU<n>_ACTIONS_FINITE
 #   5 optional CPU inference                                                             -> CPU_ACTIONS_FINITE
@@ -30,18 +32,27 @@ echo "uv=$(uv --version 2>&1)  openpi=$(git log -1 --format='%h %cd' --date=shor
 nvidia-smi --query-gpu=index,name,driver_version,temperature.gpu,clocks.sm,clocks.mem,power.draw,clocks_throttle_reasons.active,ecc.errors.uncorrected.volatile.total,memory.used --format=csv 2>/dev/null
 x="$( (journalctl -k -b --no-pager 2>/dev/null; dmesg 2>/dev/null) | grep -i 'NVRM: Xid' | tail -n 5)"
 echo "Xid errors (kernel log): ${x:-none visible (root-only logs: sudo dmesg | grep -i xid)}"
+x="$( (journalctl -k -b --no-pager 2>/dev/null; dmesg 2>/dev/null) | grep -iE 'machine check|mce:|EDAC|hardware error' | tail -n 5)"
+echo "host RAM/CPU errors (MCE/EDAC, kernel log): ${x:-none visible (sudo dmesg | grep -iE 'mce|edac|hardware error')}"
+free -g 2>/dev/null | head -n 2
 echo "--- when jax / nvidia / flax wheels in .venv last changed:"
 find .venv/lib/python3*/site-packages -maxdepth 1 \( -name 'jax*.dist-info' -o -name 'nvidia_*.dist-info' -o -name 'flax*.dist-info' \) \
   -printf '%TY-%Tm-%Td %TH:%TM  %f\n' 2>/dev/null | sort | tail -n 8
 echo "--- uv sync --dry-run (anything but 'Would make no changes'/'Resolved'/'Audited' = env differs from uv.lock):"
 GIT_LFS_SKIP_SMUDGE=1 timeout 300 uv sync --dry-run 2>&1 | tail -n 10
 
+CK=0; [ "${DIAG_ONLY:-}" = ckpt ] && CK=1
+if [ "$CK" = 0 ]; then
 log "2/6 client observation (examples/libero/.venv, CPU)"
 select_mujoco_gl "$CPY"; libero_config "$CPY" openpi "$SRC/third_party/libero"
 PYTHONPATH="$SRC/third_party/libero" CUDA_VISIBLE_DEVICES="${DIAG_GPUS%% *}" timeout 600 "$CPY" -u "$D/openpi_client_obs.py" "$OUT/obs.npz"
 
-log "3/6 checkpoint params on disk, read twice on the CPU (no GPU involved)"
-JAX_PLATFORMS=cpu CUDA_VISIBLE_DEVICES="" timeout 1800 "${SPY[@]}" scan "$OUT/params_crc.json"
+else log "2/6 skipped (DIAG_ONLY=ckpt)"; fi
+
+log "3/6 checkpoint files vs gs://openpi-assets (hashed twice), then params decoded on the CPU 3 times (no GPU)"
+JAX_PLATFORMS=cpu CUDA_VISIBLE_DEVICES="" timeout 1800 "${SPY[@]}" files
+JAX_PLATFORMS=cpu CUDA_VISIBLE_DEVICES="" timeout 2700 "${SPY[@]}" scan "$OUT/params_crc.json"
+[ "$CK" = 1 ] && { DIAG_GPUS=""; DIAG_CPU=0; DIAG_ROUNDTRIP=0; }
 
 for g in $DIAG_GPUS; do
   log "4/6 GPU $g: VRAM test, matmul, params restored onto the GPU, policy inference"
@@ -68,21 +79,26 @@ if [ "${DIAG_ROUNDTRIP:-1}" = 1 ] && [ -n "$RT" ]; then
 else log "6/6 round trip skipped (${RT:+DIAG_ROUNDTRIP=0}${RT:-no GPU gave finite actions in-process})"; fi
 
 sleep 1; echo; echo "===== SUMMARY ====="
-keys="OBS_FINITE PARAMS_NONFINITE PARAMS_NONFINITE_LEAVES PARAMS_READS_MATCH"
+keys="OBS_FINITE FILES_GCS_MISMATCH FILES_READS_MATCH FILES_BAD_COPY_DIFFERS PARAMS_NONFINITE PARAMS_NONFINITE_LEAVES PARAMS_READS_MATCH"
 for g in $DIAG_GPUS; do keys="$keys GPU${g}_MEM_ERRORS GPU${g}_MATMUL_OK GPU${g}_RESTORE_MATCH GPU${g}_ACTIONS_FINITE"; done
 for x in $keys CPU_ACTIONS_FINITE ROUNDTRIP_ACTIONS_FINITE ENV_CTRL_FINITE; do echo "$x=$(k "$x")"; done
-bad=""; good=""; badhw=""
+bad=""; good=""; badhw=""; rm_all=""
 for g in $DIAG_GPUS; do
   hw=""; m="$(k "GPU${g}_MEM_ERRORS")"; mm="$(k "GPU${g}_MATMUL_OK")"; r="$(k "GPU${g}_RESTORE_MATCH")"
   if [ -z "$m" ] || [ -z "$mm" ]; then hw="$hw check-crashed"; fi
   [ -n "$m" ] && [ "$m" != 0 ] && hw="$hw VRAM-errors"; [ -n "$mm" ] && [ "$mm" != 1 ] && hw="$hw matmul"
-  [ -n "$r" ] && [ "$r" != 1 ] && hw="$hw restore-mismatch"
+  [ -n "$r" ] && [ "$r" != 1 ] && rm_all="$rm_all $g"
   if [ "$(k "GPU${g}_ACTIONS_FINITE")" = 1 ] && [ -z "$hw" ]; then good="$good $g"; else bad="$bad $g"; badhw="$badhw GPU$g:[${hw:- ok} ; actions $( [ "$(k "GPU${g}_ACTIONS_FINITE")" = 1 ] && echo finite || echo NaN)]"; fi
 done
-bad="${bad# }"; good="${good# }"; badhw="${badhw# }"
+bad="${bad# }"; good="${good# }"; badhw="${badhw# }"; rm_all="${rm_all# }"
 P="$(k PARAMS_NONFINITE)"
 NOTE="(on-disk params: ${P:-?} non-finite values in $(k PARAMS_NONFINITE_LEAVES) leaves, read on the CPU; a released checkpoint can legitimately hold a few, so this alone is not a corruption verdict)"
+HOST="memtest86+ (boot it from a USB stick, one full pass), MCE/EDAC lines in the kernel log, reseat the DIMMs / drop XMP to stock speed; disk: sudo smartctl -a <disk>"
 if [ "$(k OBS_FINITE)" = 0 ]; then V="client observation is NaN/wrong shape: LIBERO/robosuite in examples/libero/.venv"
+elif [ "$(k FILES_READS_MATCH)" = 0 ]; then V="the same checkpoint file read twice gave different bytes: host RAM / page cache / disk, not the GPU. Check: $HOST"
+elif [ -n "$(k FILES_GCS_MISMATCH)" ] && [ "$(k FILES_GCS_MISMATCH)" != 0 ]; then V="checkpoint files on disk differ from gs://openpi-assets: move the cache dir aside (mv, do not delete) and let openpi re-download; if a fresh download also differs: host RAM or disk ($HOST)"
+elif [ "$(k PARAMS_READS_MATCH)" = 0 ]; then V="files are byte-exact vs gs://openpi-assets and stable, but decoding them (orbax/tensorstore, many threads) gives different values each time: host RAM errors under load are the usual cause, GPU irrelevant. Check: $HOST"
+elif [ -n "$rm_all" ]; then V="params restored onto GPU ${rm_all} differ from the CPU read of the same files: nondeterministic checkpoint decode (host RAM under load, or tensorstore), not one card. Check: $HOST"
 elif [ -n "$bad" ] && [ -n "$good" ]; then V="GPU-specific: problem on GPU ${bad} ($badhw), GPU ${good} is fine -> run pi0.5 on GPU ${good%% *} (CUDA_VISIBLE_DEVICES=${good%% *}); check the bad card (temperatures, Xid, reseat/power cable, a longer VRAM test)"
 elif [ -n "$bad" ] && [ -z "$good" ] && [ -n "$(tr -d ' ' <<<"$badhw" | grep -E 'VRAM|matmul|restore')" ]; then V="hardware checks failed on every GPU tested ($badhw): suspect the driver/host rather than one card"
 elif [ -n "$bad" ] && [ -z "$good" ]; then
@@ -92,9 +108,9 @@ elif [ -n "$bad" ] && [ -z "$good" ]; then
     *) V="NaN on every GPU with clean hardware checks: rerun with DIAG_CPU=1 to tell GPU numerics from model/input";;
   esac
 elif [ "$(k ROUNDTRIP_ACTIONS_FINITE)" = 0 ]; then V="policy is finite in-process but NaN through the server: client/server transport (openpi_client) or server config"
+elif [ "$CK" = 1 ]; then V="checkpoint files match gs://openpi-assets, read and decode identically every time: the checkpoint and host reads are fine"
 elif [ -n "$good" ]; then V="policy outputs are finite on GPU ${good} in-process and end to end: rerun the eval on that GPU"
 else V="incomplete: see the step output above"; fi
 echo "VERDICT: $V"
-[ "$(k PARAMS_READS_MATCH)" = 0 ] && echo "WARNING: two CPU reads of the same checkpoint files differ: host RAM or disk read problem too (run memtest86+, check the disk with smartctl)"
 [ -n "$bad" ] && echo "GPU health for GPU ${bad}: nvidia-smi -q -i ${bad%% *} -d ECC,TEMPERATURE,PERFORMANCE,CLOCK ; sudo dmesg | grep -i xid ; DIAG_GPUS=${bad%% *} rerun of this script repeats the VRAM + matmul test"
 echo "NOTE: $NOTE"; echo "Full log: $OUT/diag.log"

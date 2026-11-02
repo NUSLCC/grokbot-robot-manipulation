@@ -1,7 +1,11 @@
 """openpi pi0.5 server-side checks (openpi .venv, Python 3.11). Read-only diagnostics; modes:
 
+  files               no JAX: every checkpoint file hashed twice (crc32c) and compared with the gs://openpi-assets
+                       object list (size + crc32c) and with any pi05_libero.bad* copy next to it. Prints
+                       FILES_GCS_MISMATCH, FILES_READS_MATCH (0 = same file, different bytes: host RAM / disk),
+                       FILES_BAD_COPY_DIFFERS.
   scan FP.json         CPU only (run with JAX_PLATFORMS=cpu): read the cached checkpoint params from disk TWICE with
-                       orbax/tensorstore into host numpy; per-leaf non-finite counts + crc32. Prints PARAMS_NONFINITE,
+                       orbax/tensorstore into host numpy (DIAG_READS times, default 3); per-leaf non-finite counts + crc32. Prints PARAMS_NONFINITE,
                        PARAMS_READS_MATCH (0 = two reads of the same files differ: host RAM / disk read problem) and
                        the leaves holding non-finite values. Saves the crc32s to FP.json.
   gpu FP.json [OBS]    one GPU (set CUDA_VISIBLE_DEVICES): VRAM pattern test, fp32/bf16 matmul vs a CPU reference,
@@ -67,14 +71,88 @@ def versions():
         jax.default_backend(), jax.devices(), os.environ.get("CUDA_VISIBLE_DEVICES", ""), os.environ.get("XLA_FLAGS", "")))
 
 
+GCS_LIST = "https://storage.googleapis.com/storage/v1/b/openpi-assets/o?prefix=checkpoints/pi05_libero/&fields=items(name,size,crc32c),nextPageToken"
+
+
+def crc32c_file(path):
+    """base64 crc32c like GCS, or a sha256 prefix when no crc32c module is installed (then no GCS compare)."""
+    import base64
+    import hashlib
+    try:
+        import google_crc32c
+        h = google_crc32c.Checksum()
+        upd, dig = h.update, lambda: base64.b64encode(h.digest()).decode()
+    except ImportError:
+        h = hashlib.sha256()
+        upd, dig = h.update, lambda: "sha256:" + h.hexdigest()[:16]
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(64 << 20), b""):
+            upd(b)
+    return dig()
+
+
+def local_files(root):
+    out = {}
+    for d, _, fs in os.walk(root):
+        for f in fs:
+            p = os.path.join(d, f)
+            out[os.path.relpath(p, root)] = p
+    return out
+
+
+def mode_files():
+    import glob
+    import urllib.request
+    root = str(ckpt_dir()).rstrip("/")
+    print("FILES checkpoint dir: %s" % root)
+    gcs = {}
+    try:
+        tok = ""
+        while True:
+            d = json.load(urllib.request.urlopen(GCS_LIST + ("&pageToken=" + tok if tok else ""), timeout=30))
+            for it in d.get("items", []):
+                gcs[it["name"].split("checkpoints/pi05_libero/", 1)[1]] = (int(it["size"]), it["crc32c"])
+            tok = d.get("nextPageToken")
+            if not tok:
+                break
+    except Exception as e:  # offline: still do the twice-read check
+        print("FILES gs://openpi-assets object list not reachable (%s): no GCS compare" % e)
+    loc = local_files(root)
+    h1 = {r: crc32c_file(p) for r, p in sorted(loc.items())}
+    h2 = {r: crc32c_file(p) for r, p in sorted(loc.items())}
+    unstable = [r for r in h1 if h1[r] != h2[r]]
+    print("FILES local=%d (%.2f GB) gcs=%d hash=%s" % (len(loc), sum(os.path.getsize(p) for p in loc.values()) / 1e9, len(gcs),
+                                                      "crc32c" if not next(iter(h1.values()), "").startswith("sha256:") else "sha256 (pip google-crc32c for a GCS compare)"))
+    if gcs:
+        missing = [r for r in gcs if r not in loc]
+        bad = [r for r in gcs if r in loc and (os.path.getsize(loc[r]) != gcs[r][0] or (not h1[r].startswith("sha256:") and h1[r] != gcs[r][1]))]
+        for r in missing[:5]:
+            print("FILES missing locally: %s" % r)
+        for r in bad[:5]:
+            print("FILES differs from GCS: %s size=%d/%d crc32c=%s/%s" % (r, os.path.getsize(loc[r]), gcs[r][0], h1[r], gcs[r][1]))
+        print("FILES_GCS_MISMATCH=%d" % (len(missing) + len(bad)))
+    for r in unstable[:5]:
+        print("FILES read twice, different bytes: %s" % r)
+    print("FILES_READS_MATCH=%d" % int(not unstable))
+    diff_total = 0
+    for other in sorted(glob.glob(root + ".bad*")):
+        ol = local_files(other)
+        diffs = [r for r in h1 if r not in ol or os.path.getsize(ol[r]) != os.path.getsize(loc[r]) or crc32c_file(ol[r]) != h1[r]]
+        diff_total += len(diffs)
+        print("FILES vs %s: %d of %d files differ %s" % (other, len(diffs), len(h1), " ".join(diffs[:3])))
+    print("FILES_BAD_COPY_DIFFERS=%d" % diff_total)
+
+
 def mode_scan(fp_path):
     versions()
     reads = []
-    for r in range(2):
+    for r in range(max(2, int(os.environ.get("DIAG_READS", "3")))):
         rows = [(k, str(np.asarray(x).dtype), int(np.size(x)), nonfinite(x), crc(x)) for k, x in leaves_with_path(read_params(np.ndarray))]
         reads.append(rows)
         print("PARAMS read %d: leaves=%d values=%d nonfinite=%d" % (r + 1, len(rows), sum(x[2] for x in rows), sum(x[3] for x in rows)))
-    match = [a[4] for a in reads[0]] == [b[4] for b in reads[1]]
+    differ = sorted({a[0] for rr in reads[1:] for a, b in zip(reads[0], rr) if a[4] != b[4]})
+    match = not differ
+    print("PARAMS leaves that differ between reads: %d %s" % (len(differ), " ".join(differ[:5])))
     bad = sorted([x for x in reads[0] if x[3]], key=lambda x: -x[3])
     for k, dt, n, nf, _ in bad[:8]:
         print("PARAMS nonfinite leaf %s dtype=%s size=%d nonfinite=%d" % (k, dt, n, nf))
@@ -138,8 +216,9 @@ def mode_gpu(fp_path, obs_path):
         mism = []; nf = 0
         for k, x in leaves_with_path(read_params(jax.Array)):
             h = np.asarray(jax.device_get(x)); nf += nonfinite(h)
-            if ref_crc.get(k) != crc(h):
+            if ref_crc.get(k) != crc(h):  # same dtype as the CPU read (no dtype= cast), one replicated device
                 mism.append(k)
+            del x, h
         print("%s restore on GPU: mismatched leaves=%d nonfinite=%d %s" % (tag, len(mism), nf, " ".join(mism[:5])))
         print("%s_RESTORE_MATCH=%d" % (tag, int(not mism)))
     # 4) the policy itself on this GPU.
@@ -148,7 +227,9 @@ def mode_gpu(fp_path, obs_path):
 
 def main(argv):
     mode = argv[1] if len(argv) > 1 else "gpu"
-    if mode == "scan":
+    if mode == "files":
+        mode_files()
+    elif mode == "scan":
         mode_scan(argv[2])
     elif mode == "gpu":
         mode_gpu(argv[2] if len(argv) > 2 else "", argv[3] if len(argv) > 3 else "")
