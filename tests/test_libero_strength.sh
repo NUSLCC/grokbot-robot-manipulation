@@ -130,30 +130,59 @@ printf '#!/usr/bin/env bash\np=8000; a=("$@"); for i in "${!a[@]}"; do [ "${a[$i
 check "eval: NaN warning -> rc 1"           "$rc" 1
 check "eval: says NaN actions + diag"       "$(grep -cE '^NaN actions: .* [0-9]+ times: .*openpi_policy_check.sh' "$TMP/pi.log")" 1
 
-# --- scripts/diag/openpi_policy_check.sh against fakes: GPU NaN, CPU finite -> GPU-only verdict ---
+# --- scripts/diag/openpi_policy_check.sh against fakes (2 GPUs; per-GPU results from FAKE_G<n>="mem matmul restore actions") ---
 cat > "$TMP/bin/uv" <<'SH'
 #!/usr/bin/env bash
 case "$1" in --version) echo "uv 0.9.0"; exit 0 ;; sync) echo "Would make no changes"; exit 0 ;; esac
 case "$*" in
-  *openpi_server_infer.py*) if [ "${JAX_PLATFORMS:-}" = cpu ]; then echo "CPU_ACTIONS_FINITE=${FAKE_CPU:-1}"; else echo "PARAMS_NONFINITE=${FAKE_PARAMS:-0}"; echo "GPU_ACTIONS_FINITE=${FAKE_GPU:-0}"; fi ;;
-  *serve_policy.py*) p=8000; a=("$@"); for i in "${!a[@]}"; do [ "${a[$i]}" = --port ] && p="${a[$((i+1))]}"; done; exec python3 -m http.server "$p" --bind 127.0.0.1 ;;
+  *openpi_server_infer.py\ scan*) [ -n "${CUDA_VISIBLE_DEVICES:-}${XLA_PYTHON_CLIENT_PREALLOCATE:-}" ] && echo "scan saw a GPU" >> "$FAKE_ARGS.scan"
+    echo "PARAMS_NONFINITE=${FAKE_PNF:-0}"; echo "PARAMS_NONFINITE_LEAVES=${FAKE_PNFL:-0}"; echo "PARAMS_READS_MATCH=${FAKE_READS:-1}"; echo "{}" > "${@: -1}" ;;
+  *openpi_server_infer.py\ gpu*) g="$CUDA_VISIBLE_DEVICES"; echo "gpu $g prealloc=$XLA_PYTHON_CLIENT_PREALLOCATE" >> "$FAKE_ARGS.gpu"
+    eval "set -- \${FAKE_G$g:-0 1 1 1}"; echo "GPU${g}_MEM_ERRORS=$1"; echo "GPU${g}_MATMUL_OK=$2"; echo "GPU${g}_RESTORE_MATCH=$3"; echo "GPU${g}_ACTIONS_FINITE=$4" ;;
+  *openpi_server_infer.py\ cpu*) echo "CPU_ACTIONS_FINITE=${FAKE_CPU:-1}" ;;
+  *serve_policy.py*) echo "server on GPU $CUDA_VISIBLE_DEVICES" >> "$FAKE_ARGS.srv"; p=8000; a=("$@"); for i in "${!a[@]}"; do [ "${a[$i]}" = --port ] && p="${a[$((i+1))]}"; done; exec python3 -m http.server "$p" --bind 127.0.0.1 ;;
 esac
 SH
 chmod +x "$TMP/bin/uv"
-rundiag() { env -u LIBERO_CONFIG_PATH HOME="$TMP/home" PATH="$TMP/bin:$PATH" RSP_SKIP_GL_PROBE=1 PORT="$PORT" FAKE_ARGS="$TMP/args" "$@" \
-  bash "$K/scripts/diag/openpi_policy_check.sh" > "$TMP/diag.txt" 2>&1; }
-rundiag; rc=$?
+rundiag() { rm -f "$TMP"/args.*; env -u LIBERO_CONFIG_PATH HOME="$TMP/home" PATH="$TMP/bin:$PATH" FAKE_GPU_COUNT=2 RSP_SKIP_GL_PROBE=1 PORT="$PORT" \
+  FAKE_ARGS="$TMP/args" FAKE_RT=1 "$@" bash "$K/scripts/diag/openpi_policy_check.sh" > "$TMP/diag.txt" 2>&1; }
+verdict() { grep '^VERDICT: ' "$TMP/diag.txt" | cut -c10-; }
+# The user's case: GPU 1 gives NaN actions, GPU 0 is fine
+rundiag FAKE_G1="0 1 1 0"; rc=$?
 check "diag: exit 0"                        "$rc" 0
-check "diag: summary keys"                  "$(grep -cE '^(OBS_FINITE|PARAMS_NONFINITE|GPU_ACTIONS_FINITE|CPU_ACTIONS_FINITE|ROUNDTRIP_ACTIONS_FINITE)=[0-9]' "$TMP/diag.txt")" 11
-check "diag: GPU NaN + CPU ok -> GPU-only"  "$(grep -c '^VERDICT: GPU-only NaN' "$TMP/diag.txt")" 1
-rundiag FAKE_CPU=0
-check "diag: NaN on both -> model/inputs"   "$(grep -c '^VERDICT: NaN on GPU and CPU' "$TMP/diag.txt")" 1
-rundiag FAKE_PARAMS=12
-check "diag: NaN params -> corrupted cache" "$(grep -c '^VERDICT: checkpoint params contain NaN' "$TMP/diag.txt")" 1
-rundiag FAKE_GPU=1 FAKE_RT=0 DIAG_CPU=0
-check "diag: in-process ok, round trip NaN" "$(grep -c '^VERDICT: model is fine in-process but NaN through the server' "$TMP/diag.txt")" 1
-check "diag: DIAG_CPU=0 skips the CPU run"  "$(grep -c '^CPU_ACTIONS_FINITE=[0-9]' "$TMP/diag.txt")" 0
+check "diag: tests both GPUs, no prealloc"  "$(cat "$TMP/args.gpu" | tr '\n' ';')" "gpu 0 prealloc=false;gpu 1 prealloc=false;"
+check "diag: params scan without a GPU"     "$([ -f "$TMP/args.scan" ] && echo gpu || echo cpu-only)" cpu-only
+check "diag: GPU1 bad, GPU0 good"           "$(verdict | cut -c1-58)" "GPU-specific: problem on GPU 1 (GPU1:[ ok ; actions NaN]),"
+check "diag: suggests running on GPU 0"     "$(verdict | grep -c 'run pi0.5 on GPU 0')" 1
+check "diag: GPU health commands for GPU 1" "$(grep -c '^GPU health for GPU 1: nvidia-smi -q -i 1 -d ECC,TEMPERATURE,PERFORMANCE,CLOCK' "$TMP/diag.txt")" 1
+check "diag: round trip on the good GPU"    "$(cat "$TMP/args.srv")" "server on GPU 0"
+check "diag: summary has per-GPU keys"      "$(grep -cE '^GPU[01]_(MEM_ERRORS|MATMUL_OK|RESTORE_MATCH|ACTIONS_FINITE)=[0-9]+$' "$TMP/diag.txt")" 16
+rundiag FAKE_G1="17 1 0 0"
+check "diag: VRAM errors + restore mismatch named" "$(verdict | grep -c 'GPU1:\[ VRAM-errors restore-mismatch ; actions NaN\]')" 1
+# NaN on both GPUs, clean hardware: CPU decides
+rundiag FAKE_G0="0 1 1 0" FAKE_G1="0 1 1 0" DIAG_CPU=1
+check "diag: all-GPU NaN, CPU ok -> XLA numerics" "$(verdict | cut -c1-48)" "NaN on every GPU but finite on the CPU, hardware"
+check "diag: no finite GPU -> no round trip" "$([ -f "$TMP/args.srv" ] && echo ran || echo skipped)" skipped
+rundiag FAKE_G0="0 1 1 0" FAKE_G1="0 1 1 0" DIAG_CPU=1 FAKE_CPU=0
+check "diag: NaN on CPU too -> model/inputs" "$(verdict | cut -c1-31)" "NaN on GPUs and on the CPU: the"
+rundiag FAKE_G0="0 1 1 0" FAKE_G1="0 1 1 0"
+check "diag: all-GPU NaN, no CPU run -> asks DIAG_CPU=1" "$(verdict | grep -c 'DIAG_CPU=1')" 1
+# Two CPU reads differ -> host RAM / disk
+rundiag FAKE_READS=0
+check "diag: reads differ -> RAM/disk warning" "$(grep -c '^WARNING: two CPU reads of the same checkpoint files differ' "$TMP/diag.txt")" 1
+check "diag: reads differ: GPU verdict kept" "$(verdict | cut -c1-30)" "policy outputs are finite on G"
+# The misleading old verdict: non-finite on-disk values alone are NOT 'corrupted cache'
+rundiag FAKE_PNF=12 FAKE_PNFL=2
+check "diag: nonfinite params alone: no corruption verdict" "$(verdict | grep -ci 'corrupt')" 0
+check "diag: ...verdict follows the GPU results" "$(verdict | cut -c1-40)" "policy outputs are finite on GPU 0 1 in-"
+check "diag: ...note explains the count"    "$(grep -c '^NOTE: (on-disk params: 12 non-finite values in 2 leaves, read on the CPU; a released checkpoint can legitimately' "$TMP/diag.txt")" 1
+# A GPU check that crashed (no keys) counts as bad, not as clean
+rundiag FAKE_G1="'' '' '' 0"
+check "diag: crashed check -> flagged"      "$(verdict | grep -c 'check-crashed')" 1
+rundiag DIAG_GPUS=1 FAKE_G1="0 1 1 1" FAKE_RT=0
+check "diag: DIAG_GPUS=1 only"              "$(cat "$TMP/args.gpu")" "gpu 1 prealloc=false"
+check "diag: finite in-process, NaN via server" "$(verdict | cut -c1-48)" "policy is finite in-process but NaN through the "
 check "diag: server stopped afterwards"     "$(sleep 0.5; (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null && echo listening || echo stopped)" stopped
-check "diag: log file written"              "$(ls "$RSP_HOME"/logs/diag_openpi_*/diag.log | wc -l | tr -d ' ')" 4
+
 echo; [ "$nfail" = 0 ] && echo "ALL PASS" || echo "$nfail FAILED"
 exit "$nfail"
