@@ -1,0 +1,16 @@
+[rsp 08:42:20] LIBERO suite libero_10: 10 trials per task
+INFO:root:Success: False
+INFO:root:# episodes completed so far: 100
+INFO:root:# successes: 0 (0.0%)
+INFO:root:Current task success rate: 0.0
+INFO:root:Current total success rate: 0.0
+INFO:root:Total success rate: 0.0
+INFO:root:Total episodes: 100
+Suite result: libero_spatial 0/100
+Suite result: libero_object 0/100
+Suite result: libero_goal 0/100
+Suite result: libero_10 0/100
+Total success rate: 0.0000
+Total episodes: 400
+Peak GPU memory: 19472 MiB
+[ OK ] Logs + videos in /home/lcc/robot-sim/logs/eval_openpi_libero_20261102-095622

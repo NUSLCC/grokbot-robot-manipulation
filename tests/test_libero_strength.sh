@@ -35,13 +35,19 @@ exec python3 -m http.server "$p" --bind 127.0.0.1
 SH
 cat > "$SRC/examples/libero/.venv/bin/python" <<'SH'
 #!/usr/bin/env bash
-a=("$@"); for i in "${!a[@]}"; do case "${a[$i]}" in --args.task-suite-name) s="${a[$((i+1))]}" ;; --args.num-trials-per-task) n="${a[$((i+1))]}" ;; esac; done
-echo "fakeclient $s $n" >> "$FAKE_ARGS"
-e=$((n*10)); case "$s" in libero_10) k=$((e-3)) ;; libero_goal) k=$((e-1)) ;; *) k=$e ;; esac
+[ "$1" = -c ] && { echo "0.0 0.0"; exit 0; }   # video brightness check
+case "$1" in *libero_config.py) exec python3 "$@" ;; esac   # real config writer (finds the fake third_party/libero)
+[ -f "${LIBERO_CONFIG_PATH:-/nonexistent}/config.yaml" ] && echo "cfg $LIBERO_CONFIG_PATH" >> "$FAKE_ARGS.cfg"
+a=("$@"); for i in "${!a[@]}"; do case "${a[$i]}" in --args.task-suite-name) s="${a[$((i+1))]}" ;; --args.num-trials-per-task) n="${a[$((i+1))]}" ;; --args.port) p="${a[$((i+1))]}" ;; --args.video-out-path) vd="${a[$((i+1))]}" ;; esac; done
+echo "fakeclient $s $n" >> "$FAKE_ARGS"; echo "$p" >> "$FAKE_ARGS.port"; sleep "${FAKE_CLIENT_SLEEP:-0}"
+mkdir -p "$vd"; : > "$vd/rollout_x_failure.mp4"; echo "INFO:root:Task suite: $s" >&2
+e=$((n*10)); case "$s" in libero_10) k=$((e-3)) ;; libero_goal) k=$((e-1)) ;; *) k=$e ;; esac; [ -n "${FAKE_ZERO:-}" ] && k=0
 echo "INFO:root:Total success rate: $(awk -v k=$k -v e=$e 'BEGIN{print k/e}')" >&2; echo "INFO:root:Total episodes: $e" >&2
 SH
 chmod +x "$TMP/bin/uv" "$SRC/examples/libero/.venv/bin/python"
-runpi() { env PATH="$TMP/bin:$PATH" RSP_SKIP_GL_PROBE=1 PORT="$PORT" FAKE_ARGS="$TMP/args" "$@" \
+mkdir -p "$SRC/third_party/libero/libero/libero"; touch "$SRC/third_party/libero/libero/libero/__init__.py"
+mkdir -p "$TMP/home/.libero"; printf 'benchmark_root: "/elsewhere/hf_libero/libero/libero"\n' > "$TMP/home/.libero/config.yaml"
+runpi() { env -u LIBERO_CONFIG_PATH HOME="$TMP/home" PATH="$TMP/bin:$PATH" RSP_SKIP_GL_PROBE=1 PORT="$PORT" FAKE_ARGS="$TMP/args" "$@" \
   bash "$K/scripts/eval/openpi_pi05_libero.sh" > "$TMP/pi.log" 2>&1; }
 : > "$TMP/args"; runpi SUITES="$ALL" TRIALS=10; rc=$?
 check "openpi 4 suites: exit 0"             "$rc" 0
@@ -49,11 +55,65 @@ check "openpi 4 suites: one client per suite" "$(cut -d' ' -f2 "$TMP/args" | pas
 check "openpi 4 suites: trials passed"      "$(grep -c ' 10$' "$TMP/args")" 4
 check "openpi 4 suites: per-suite lines"    "$(grep -c '^Suite result: ' "$TMP/pi.log")" 4
 check "openpi 4 suites: libero_10 line"     "$(grep '^Suite result: libero_10' "$TMP/pi.log")" "Suite result: libero_10 97/100"
+check "openpi: own LIBERO config, openpi's copy" "$(grep -c "\"$SRC/third_party/libero/libero/libero\"" "$RSP_HOME/config/libero/openpi/config.yaml")" 1
+check "openpi: client sees that config"     "$(sort -u "$TMP/args.cfg")" "cfg $RSP_HOME/config/libero/openpi"
+check "openpi: warns about the shared ~/.libero" "$(grep -c 'config.yaml points at another LIBERO copy' "$TMP/pi.log")" 1
+check "openpi: shared ~/.libero untouched"  "$(cat "$TMP/home/.libero/config.yaml")" 'benchmark_root: "/elsewhere/hf_libero/libero/libero"'
 check "openpi 4 suites: combined metric"    "$(extract_metric openpi_eval "$TMP/pi.log")" "success 99.0% of 400 eps"
 : > "$TMP/args"; runpi SUITE=libero_object TRIALS=2
 check "openpi SUITE= (single) still works"  "$(cat "$TMP/args")" "fakeclient libero_object 2"
 check "openpi single: metric"               "$(extract_metric openpi_eval "$TMP/pi.log")" "success 100.0% of 20 eps"
 check "openpi single: no combined block"    "$(grep -c '^Suite result:' "$TMP/pi.log")" 0
 
+
+# --- 0% guard (run 20261102-084220 on GPU 1: every episode 'Success: False', 0/400, yet the step PASSED) ---
+: > "$TMP/args"; runpi SUITES="$ALL" TRIALS=10 FAKE_ZERO=1; rc=$?
+check "openpi 0 successes -> rc 1"          "$rc" 1
+check "openpi 0: says setup problem"        "$(grep -c 'pi0.5 had 0 successes in 400 episodes' "$TMP/pi.log")" 1
+check "openpi 0: video check printed"       "$(grep -c '^Video check: .*mean/std pixel = 0.0 0.0' "$TMP/pi.log")" 1
+: > "$TMP/args"; runpi SUITE=libero_spatial TRIALS=1 FAKE_ZERO=1 ALLOW_ZERO_SUCCESS=1; rc=$?
+check "ALLOW_ZERO_SUCCESS=1 accepts 0%"     "$rc" 0
+# runner: a PASSing pretrained eval with 0% becomes FAIL (fixture rebuilt from the user's grep of that run)
+dry QUICK=0 LIBERO_SUITES=all LIBERO_EPISODES=10 FAKE_STEP_VARIANT=zero
+S="$(ls "$TMP"/runs/*/SUMMARY.md)"
+rowv() { grep -E "^\| $1 \|" "$S" | awk -F'|' -v c="$2" '{gsub(/^ +| +$/,"",$c); print $c}'; }
+check "runner: pi0.5 0% -> FAIL"            "$(rowv openpi_pi05_libero_eval 3)" FAIL
+check "runner: pi0.5 0% metric kept"        "$(rowv openpi_pi05_libero_eval 6)" "success 0.0% of 400 eps"
+check "runner: 0% hint"                     "$(grep -c 'pretrained policy scored 0%' "$S")" 1
+check "runner: smolvla (no zero fixture) still PASS" "$(rowv smolvla_libero_eval 3)" PASS
+dry QUICK=0 FAKE_STEP_VARIANT=zero ALLOW_ZERO_SUCCESS=1
+S="$(ls "$TMP"/runs/*/SUMMARY.md)"
+check "runner: ALLOW_ZERO_SUCCESS=1 -> PASS" "$(rowv openpi_pi05_libero_eval 3)" PASS
+# SmolVLA metric: 1 decimal (the real run printed 'success 63.24999999999999%')
+mkdir -p "$TMP/ev"; echo '{"overall":{"pc_success":63.24999999999999}}' > "$TMP/ev/eval_info.json"
+check "smolvla metric 1 decimal"            "$(printf 'Results in %s\n' "$TMP/ev" > "$TMP/sv.log"; extract_metric lerobot_eval "$TMP/sv.log")" "success 63.2%"
+echo '{"overall":{"pc_success":0.0}}' > "$TMP/ev/eval_info.json"
+check "smolvla 0.0 metric (FAILs in runner)" "$(extract_metric lerobot_eval "$TMP/sv.log")" "success 0.0%"
+
+# --- our own server: busy port -> next free port; server stopped on exit; dead server -> fail ---
+python3 -m http.server "$PORT" --bind 127.0.0.1 > /dev/null 2>&1 & BUSY=$!
+for i in $(seq 1 50); do (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null && break; sleep 0.1; done
+: > "$TMP/args"; : > "$TMP/args.port"; runpi SUITE=libero_spatial TRIALS=1; rc=$?
+check "busy port: exit 0"                   "$rc" 0
+check "busy port: warns"                    "$(grep -c "port $PORT is already in use" "$TMP/pi.log")" 1
+check "busy port: client uses our port"     "$(cat "$TMP/args.port")" "$((PORT+1))"
+kill "$BUSY" 2>/dev/null; wait "$BUSY" 2>/dev/null
+sleep 0.5
+check "server stopped after the eval"       "$( (exec 3<>"/dev/tcp/127.0.0.1/$((PORT+1))") 2>/dev/null && echo still-listening || echo stopped)" stopped
+cat > "$TMP/bin/uv" <<'SH'
+#!/usr/bin/env bash
+p=8000; a=("$@"); for i in "${!a[@]}"; do [ "${a[$i]}" = --port ] && p="${a[$((i+1))]}"; done
+python3 -m http.server "$p" --bind 127.0.0.1 & h=$!; sleep 3; kill $h; echo "server crashed"; exit 1
+SH
+: > "$TMP/args"; runpi SUITES="$ALL" TRIALS=1 FAKE_CLIENT_SLEEP=2; rc=$?
+check "server dies mid-run -> rc 1"         "$rc" 1
+check "server dies mid-run: clear message"  "$(grep -c 'policy server exited (before suite' "$TMP/pi.log")" 1
+check "server dies mid-run: stops before all 4 suites" "$([ "$(wc -l < "$TMP/args")" -lt 4 ] && echo stopped)" stopped
+printf '#!/usr/bin/env bash\necho "OSError: [Errno 98] Address already in use"; exit 1\n' > "$TMP/bin/uv"
+: > "$TMP/args"; SECONDS=0; runpi SUITE=libero_spatial TRIALS=1; rc=$?
+check "server crashes at start -> rc 1"     "$rc" 1
+check "server crashes at start: fast"       "$([ "$SECONDS" -lt 30 ] && echo fast || echo slow)" fast
+check "server crashes at start: message + log" "$(grep -c 'policy server exited (while starting)\|Address already in use' "$TMP/pi.log")" 2
+check "server crashes at start: no client"  "$(wc -l < "$TMP/args")" 0
 echo; [ "$nfail" = 0 ] && echo "ALL PASS" || echo "$nfail FAILED"
 exit "$nfail"

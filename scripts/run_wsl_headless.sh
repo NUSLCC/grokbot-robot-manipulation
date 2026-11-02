@@ -19,6 +19,7 @@
 #   LIBERO_SUITES=all    smolvla_libero_eval + openpi_pi05_libero_eval: LIBERO suites, comma list or "all"
 #                        (= libero_spatial,libero_object,libero_goal,libero_10, the benchmark protocol)
 #   LIBERO_EPISODES=10   both LIBERO evals: episodes per task (overrides QUICK and script defaults)
+#   ALLOW_ZERO_SUCCESS=1 do not FAIL a SmolVLA / pi0.5 LIBERO eval that scored 0% (default: 0% = FAIL)
 #   EVAL_ONLY=1          act_aloha / diffusion_pusht: only re-evaluate the newest saved checkpoint (no training)
 #   STEP_TIMEOUT=14400   per-step timeout in seconds (0 = none, default)
 #   RUNS_DIR=path        where runs/<timestamp> goes (default: <repo>/runs)
@@ -162,6 +163,11 @@ for s in "${STEPS[@]}"; do
   esac
   METRIC[$s]="$(extract_metric "${KIND[$s]}" "$lf")"
   [ "${STATUS[$s]}" = FAIL ] && [ "${KIND[$s]}" = install ] && METRIC[$s]="n/a"
+  # A pretrained-policy eval (SmolVLA, pi0.5) with 0% success is a broken setup, not a score: FAIL it.
+  if [ "${STATUS[$s]}" = PASS ] && [[ "${KIND[$s]}" =~ ^(lerobot_eval|openpi_eval)$ ]] && [[ "${METRIC[$s]}" =~ ^success\ 0(\.0+)?% ]] \
+     && [ "${ALLOW_ZERO_SUCCESS:-0}" != 1 ]; then
+    STATUS[$s]=FAIL; HINT[$s]="pretrained policy scored 0% (expected well above 0): the eval setup is broken, not the policy; check the step log, server log and rollout videos (ALLOW_ZERO_SUCCESS=1 accepts 0%)"
+  fi
   [ "${STATUS[$s]}" = SKIP ] && [ -n "${HINT[$s]}" ] && METRIC[$s]="${HINT[$s]}" && HINT[$s]=""
   log "[$n] $s: ${STATUS[$s]} in ${SECS[$s]}s  peak GPU ${PEAK[$s]} MiB  metric: ${METRIC[$s]}"
   if [ "${STATUS[$s]}" = FAIL ]; then warn "      hint: ${HINT[$s]}"; tail -n 20 "$lf" | sed 's/^/      | /'; fi

@@ -41,7 +41,7 @@ extract_metric() {
         b="$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));o=d.get("overall",d);print(o.get("pc_success",""))' "$a/eval_info.json" 2>/dev/null || true)"
       fi
       [ -z "${b:-}" ] && b="$(_num "$(_last "$log" "pc_success['\"]?: *[0-9.]+")")"
-      [ -n "${b:-}" ] && m="success ${b}%" ;;
+      [ -n "${b:-}" ] && m="success $(awk -v x="$b" 'BEGIN{printf "%.1f", x}')%" ;;
     openpi_eval)
       a="$(_num "$(_last "$log" 'Total success rate: *[0-9.]+')")"
       if [ -n "$a" ]; then m="success $(awk -v x="$a" 'BEGIN{printf "%.1f", x*100}')%"
