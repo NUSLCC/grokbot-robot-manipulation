@@ -140,3 +140,15 @@ The step's metric is play.py's result (`Successful trials: K, out of N trials` /
 The `OpenGL/EGL problem` hint that this failure printed was wrong: Isaac Sim's headless start-up warnings
 (`[Warning] [omni.platforminfo.plugin] failed to open the default display. Can't verify X Server version.`) and
 robomimic's `egl-probe` dependency are normal on a machine without a display, and the hints now ignore them.
+
+## openpi π0.5 LIBERO: 0% success, `Nan, Inf or huge value in CTRL`
+
+The policy is returning NaN actions. Find out where:
+
+```bash
+DIAG_GPUS="0 1" bash scripts/diag/openpi_policy_check.sh      # prints a VERDICT
+nvidia-smi -q -i 1 -d ECC,TEMPERATURE,PERFORMANCE,CLOCK       # health of the suspect card
+sudo dmesg | grep -i xid                                      # driver-reported GPU faults
+```
+
+If one GPU gives finite actions and the other NaN, it is that card, not the checkpoint: run the eval on the good one (`CUDA_VISIBLE_DEVICES=0`).
