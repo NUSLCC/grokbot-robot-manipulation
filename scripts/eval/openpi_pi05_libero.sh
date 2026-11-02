@@ -68,6 +68,8 @@ if [ "$tot_s" = 0 ] && [ "${ALLOW_ZERO_SUCCESS:-0}" != 1 ]; then
     b="$(examples/libero/.venv/bin/python -c 'import sys,imageio,numpy as np; r=imageio.get_reader(sys.argv[1]); f=[np.asarray(x,dtype=float) for i,x in zip(range(30),r)]; print("%.1f %.1f"%(np.mean(f),np.std(f)))' "$v" 2>/dev/null || true)"
     echo "Video check: $v mean/std pixel = ${b:-unreadable} (near 0 / tiny std = black or blank frames: rendering problem)"
   fi
+  nan="$(cat "$OUT"/client_*.log 2>/dev/null | grep -ac 'Nan, Inf or huge value in CTRL' || true)"
+  [ "${nan:-0}" -gt 0 ] && echo "NaN actions: MuJoCo warned 'Nan, Inf or huge value in CTRL' $nan times: the policy returned NaN/huge actions. Diagnose: bash scripts/diag/openpi_policy_check.sh"
   echo "Server log head:"; sed -n 1,25p "$OUT/server.log"
   die "pi0.5 had 0 successes in $tot_n episodes: setup problem, not a score (ALLOW_ZERO_SUCCESS=1 accepts it). Logs + videos in $OUT"
 fi
