@@ -1,0 +1,18 @@
+[WARN] /home/lcc/.libero/config.yaml points at another LIBERO copy; this eval now uses /home/lcc/robot-sim/config/libero/openpi/config.yaml instead
+[robosuite WARNING] No private macro file found! (macros.py:53)
+INFO:root:Total success rate: 0.0
+WARNING: Nan, Inf or huge value in CTRL at ACTUATOR 0. The simulation is unstable. Time = 0.5000.
+
+WARNING: Nan, Inf or huge value in CTRL at ACTUATOR 0. The simulation is unstable. Time = 0.5000.
+
+WARNING: Nan, Inf or huge value in CTRL at ACTUATOR 0. The simulation is unstable. Time = 0.5000.
+
+Peak GPU memory: 19463 MiB
+Video check: /home/lcc/robot-sim/logs/eval_openpi_libero_20261102-132332/videos/libero_spatial/rollout_pick_up_the_black_bowl_between_the_plate_and_the_ramekin_and_place_it_on_the_plate_failure.mp4 mean/std pixel = 117.8 50.3 (near 0 / tiny std = black or blank frames: rendering problem)
+Server log head:
+INFO:root:Loading model...
+INFO:root:Loaded norm stats from /home/lcc/robot-sim/openpi_cache/openpi-assets/checkpoints/pi05_libero/assets/physical-intelligence/libero
+INFO:websockets.server:server listening on 0.0.0.0:8000
+Exception ignored in: <function EGLGLContext.__del__ at 0x7f0000000000>
+OpenGL.raw.EGL._errors.EGLError: EGLError(err = EGL_NOT_INITIALIZED, baseOperation = eglMakeCurrent)
+[FAIL] pi0.5 had 0 successes in 20 episodes: setup problem, not a score (ALLOW_ZERO_SUCCESS=1 accepts it). Logs + videos in /home/lcc/robot-sim/logs/eval_openpi_libero_20261102-132332

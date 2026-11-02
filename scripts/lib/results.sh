@@ -41,7 +41,7 @@ extract_metric() {
         b="$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));o=d.get("overall",d);print(o.get("pc_success",""))' "$a/eval_info.json" 2>/dev/null || true)"
       fi
       [ -z "${b:-}" ] && b="$(_num "$(_last "$log" "pc_success['\"]?: *[0-9.]+")")"
-      [ -n "${b:-}" ] && m="success ${b}%" ;;
+      [ -n "${b:-}" ] && m="success $(awk -v x="$b" 'BEGIN{printf "%.1f", x}')%" ;;
     openpi_eval)
       a="$(_num "$(_last "$log" 'Total success rate: *[0-9.]+')")"
       if [ -n "$a" ]; then m="success $(awk -v x="$a" 'BEGIN{printf "%.1f", x*100}')%"
@@ -82,7 +82,9 @@ failure_hint() {
     return 0
   fi
   body="$(_hint_body "$log")"
-  if _hint_has 'No robomimic checkpoint found'; then
+  if _hint_has 'Nan, Inf or huge value in CTRL'; then
+    echo "the policy sent NaN/huge actions (MuJoCo: 'Nan, Inf or huge value in CTRL'); rendering is not the problem. Run: bash scripts/diag/openpi_policy_check.sh (with the same CUDA_VISIBLE_DEVICES) and see its VERDICT"
+  elif _hint_has 'No robomimic checkpoint found'; then
     echo "Mimic trained but the play stage found no checkpoint (.pth) under \$ISAACLAB_PATH/logs/robomimic: git pull the kit (it searches at any depth), then rerun only the play stage: MIMIC_STAGE=play (TROUBLESHOOTING.md 'Isaac Lab Mimic'), or set CHECKPOINT=/path/model_epoch_N.pth"
   elif _hint_has "has no attribute '_cloth_label'"; then
     echo "Newton version mismatch with Isaac Lab; see the Newton/Warp pins row in the step log for the fix command"

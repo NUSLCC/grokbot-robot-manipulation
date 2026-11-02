@@ -5,6 +5,10 @@
 # base_deps.rc100.log = interrupted dpkg); otherwise a generic error line for RC is appended.
 s="$1"; rc="${2:-0}"; dir="$(cd "$(dirname "$0")" && pwd)/fixtures"; f="$dir/$s.log"
 echo "[dry-run] $s (rc=$rc)"
+# FAKE_STEP_VARIANT=name replays tests/fixtures/<step>.<name>.log (exit RC) when it exists, e.g. a "zero" eval.
+if [ -n "${FAKE_STEP_VARIANT:-}" ] && [ -f "$dir/$s.$FAKE_STEP_VARIANT.log" ]; then
+  sed "s|@RUNTMP@|${RSP_DRY_RUN_TMP:-/tmp}|g" "$dir/$s.$FAKE_STEP_VARIANT.log"; exit "$rc"
+fi
 if [ -f "$dir/$s.rc$rc.log" ]; then
   sed "s|@RUNTMP@|${RSP_DRY_RUN_TMP:-/tmp}|g" "$dir/$s.rc$rc.log"
   sleep "${FAKE_STEP_SLEEP:-0}"; exit "$rc"

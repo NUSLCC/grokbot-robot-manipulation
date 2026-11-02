@@ -240,6 +240,7 @@ Each copy writes its own `runs/gpu0/<timestamp>/SUMMARY.md` and `runs/gpu1/<time
 | `SKIP_STEPS="a b"` | skip these steps |
 | `SKIP_INSTALL=1` | skip `base_deps` and `*_install` |
 | `EVAL_ONLY=1` (optional `CKPT=<.../pretrained_model>`) | `act_aloha` / `diffusion_pusht`: evaluate the newest saved checkpoint, no training |
+| `LIBERO_SUITES=all` (or a comma list), `LIBERO_EPISODES=10` | `smolvla_libero_eval` + `openpi_pi05_libero_eval`: suites (`all` = spatial, object, goal, 10) and episodes per task; benchmark protocol = `all` + `10` |
 | `MIMIC_STAGE=all\|annotate\|generate\|train\|play` | `isaac_mimic`: run one stage; `play` uses the newest robomimic checkpoint (`CHECKPOINT=` overrides) |
 | `STEP_TIMEOUT=14400` | per-step timeout in seconds (default 0 = none); a timeout is rc 124 |
 | `QUICK=1` | short settings |

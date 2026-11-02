@@ -281,7 +281,8 @@ wait_port() {
   while ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; do
     sleep 2; i=$((i+2)); [ "$i" -ge "$t" ] && return 1
   done
-  exec 3>&- 3<&- 2>/dev/null || true
+  # (fd 3 was opened in a subshell; nothing to close here. The old 'exec 3>&- 3<&- 2>/dev/null' silenced the
+  # caller's stderr for the rest of the script, hiding every later [WARN]/[FAIL] message.)
   return 0
 }
 
