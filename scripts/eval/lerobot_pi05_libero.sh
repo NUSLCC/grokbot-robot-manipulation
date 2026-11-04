@@ -8,7 +8,7 @@ source "$(dirname "$0")/../lib/common.sh"; clean_python_env
 ENV="$RSP_ENVS/${LEROBOT_LIBERO_ENV:-lerobot-libero}"   # MuJoCo 3.3.2 env (10b_install_lerobot_libero.sh)
 [ -x "$ENV/bin/lerobot-eval" ] || die "Run scripts/10b_install_lerobot_libero.sh first (LIBERO needs its own env: MuJoCo >= 3.4 breaks libero_spatial task 5)"
 select_mujoco_gl "$ENV/bin/python"
-libero_config "$ENV/bin/python" lerobot   # no first-import prompt (EOFError headless)   # EGL, or OSMesa fallback on WSL2
+libero_config "$ENV/bin/python" lerobot-libero   # no first-import prompt (EOFError headless)   # EGL, or OSMesa fallback on WSL2
 OUT="$RSP_LOGS/eval_pi05_lerobot_libero_$(stamp)"
 gpu_monitor_start "$OUT.gpu.csv"
 "$ENV/bin/lerobot-eval" --output_dir="$OUT" --env.type=libero --env.task="$SUITES" \

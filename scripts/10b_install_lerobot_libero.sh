@@ -17,7 +17,7 @@ log "Installing lerobot[$LEROBOT_LIBERO_EXTRAS] + mujoco==$LIBERO_MUJOCO dm-cont
 uv pip install --python "$PY" --torch-backend "$LEROBOT_TORCH_BACKEND" -e "${SRC}[${LEROBOT_LIBERO_EXTRAS}]" \
   "mujoco==$LIBERO_MUJOCO" "dm-control==$LIBERO_DM_CONTROL"
 select_mujoco_gl "$PY"
-libero_config "$PY" lerobot
+libero_config "$PY" lerobot-libero   # own config dir: envs/lerobot keeps its LIBERO config
 "$PY" - "$LIBERO_MUJOCO" <<'PY'
 import sys, importlib.metadata as m, torch, mujoco
 from libero.libero import benchmark
