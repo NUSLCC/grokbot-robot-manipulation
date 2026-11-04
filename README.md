@@ -119,6 +119,7 @@ bash scripts/00_check_system.sh          # read-only audit; exit code = number o
 bash scripts/01_base_deps.sh             # apt packages, uv, Miniforge (asks for sudo). Driver/Isaac untouched.
 bash scripts/02_isaaclab_validate.sh     # finds your Isaac Lab 3.0 / Isaac Sim 6.2 and runs a headless smoke test
 bash scripts/10_install_lerobot.sh       # phase 1 core
+bash scripts/10b_install_lerobot_libero.sh   # LIBERO env (MuJoCo 3.3.2; >=3.4 breaks libero_spatial task 5)
 bash scripts/11_install_openpi.sh        # phase 1 core
 bash scripts/12_install_openvla_oft.sh   # phase 1 core (SKIP_FLASH_ATTN=1 for inference only)
 bash scripts/13_install_groot.sh         # phase 2 (needs gated nvidia/Cosmos-Reason2-2B access)
