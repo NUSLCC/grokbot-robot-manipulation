@@ -5,6 +5,10 @@
 set -euo pipefail
 source "$(dirname "$0")/../lib/common.sh"; clean_python_env; apply_gpu_selection
 : "${POLICY:=lerobot/smolvla_libero}"; : "${SUITES:=libero_object}"; : "${N_EPISODES:=2}"; : "${BATCH:=1}"
+# lerobot/smolvla_libero ships n_action_steps=50 (= chunk_size): the whole 50-step chunk runs open loop. The SmolVLA paper
+# (arXiv 2506.01844, Table 13) gets 51.8% avg on LIBERO with 50 executed steps vs 82.8% with 10 and 80.3% with 1
+# (HuggingFaceVLA/smolvla_libero ships 1). Re-plan every 10 steps by default; N_ACTION_STEPS=50 restores the checkpoint value.
+: "${N_ACTION_STEPS:=10}"
 ENV="$RSP_ENVS/lerobot"; [ -x "$ENV/bin/lerobot-eval" ] || die "Run scripts/10_install_lerobot.sh first"
 select_mujoco_gl "$ENV/bin/python"
 libero_config "$ENV/bin/python" lerobot   # no first-import prompt (EOFError headless)   # EGL, or OSMesa fallback on WSL2
@@ -14,7 +18,7 @@ OUT="$RSP_LOGS/eval_smolvla_libero_$(stamp)"
 RENAME='{"observation.images.image": "observation.images.camera1", "observation.images.image2": "observation.images.camera2"}'
 gpu_monitor_start "$OUT.gpu.csv"
 "$ENV/bin/lerobot-eval" \
-  --policy.path="$POLICY" \
+  --policy.path="$POLICY" --policy.n_action_steps="$N_ACTION_STEPS" \
   --env.type=libero --env.task="$SUITES" \
   --eval.batch_size="$BATCH" --eval.n_episodes="$N_EPISODES" \
   --env.max_parallel_tasks=1 \

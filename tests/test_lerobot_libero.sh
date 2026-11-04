@@ -100,6 +100,8 @@ check "every other LIBERO eval writes the config" \
   "$(grep -L 'libero_config ' "$K"/scripts/eval/*libero*.sh | grep -v openpi_ | wc -l)" 0
 check "LeRobot LIBERO eval writes it itself (rerun without install works)" \
   "$(grep -c '^libero_config "$ENV/bin/python" lerobot' "$K/scripts/eval/lerobot_smolvla_libero.sh")" 1
+check "SmolVLA eval re-plans every 10 steps by default (checkpoint ships 50)" \
+  "$(grep -c '^: "${N_ACTION_STEPS:=10}"' "$K/scripts/eval/lerobot_smolvla_libero.sh"):$(grep -c -- '--policy.n_action_steps="$N_ACTION_STEPS"' "$K/scripts/eval/lerobot_smolvla_libero.sh")" "1:1"
 
 # --- 4. hints, from the real logs of the user's run ---
 check "hint: renamed flag" "$(failure_hint act_aloha "$T/fixtures/act_aloha.rc2.log" 2)" \
