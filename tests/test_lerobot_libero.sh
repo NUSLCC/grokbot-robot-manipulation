@@ -100,6 +100,8 @@ check "every other LIBERO eval writes the config" \
   "$(grep -L 'libero_config ' "$K"/scripts/eval/*libero*.sh | grep -v openpi_ | wc -l)" 0
 check "LeRobot LIBERO eval writes it itself (rerun without install works)" \
   "$(grep -c '^libero_config "$ENV/bin/python" lerobot' "$K/scripts/eval/lerobot_smolvla_libero.sh")" 1
+check "LeRobot LIBERO evals use the MuJoCo 3.3.2 env, ALOHA/ACT keep envs/lerobot" \
+  "$(grep -l 'RSP_ENVS/${LEROBOT_LIBERO_ENV:-lerobot-libero}' "$K"/scripts/eval/lerobot_*libero*.sh | wc -l):$(grep -c 'RSP_ENVS/lerobot"' "$K/scripts/train/lerobot_act_aloha.sh"):$(grep -c 'LIBERO_MUJOCO:=3.3.2' "$K/scripts/lib/versions.env")" "2:1:1"
 check "SmolVLA eval re-plans every 10 steps by default (checkpoint ships 50)" \
   "$(grep -c '^: "${N_ACTION_STEPS:=10}"' "$K/scripts/eval/lerobot_smolvla_libero.sh"):$(grep -c -- '--policy.n_action_steps="$N_ACTION_STEPS"' "$K/scripts/eval/lerobot_smolvla_libero.sh")" "1:1"
 

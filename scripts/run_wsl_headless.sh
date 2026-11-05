@@ -78,7 +78,7 @@ add isaac_rl_franka isaac_rl      isaac_validate   "env $(q "${Q_RL[@]}") bash $
 # MIMIC_STAGE (or STAGE) = all|annotate|generate|train|play picks the Mimic stage(s); play reuses the newest checkpoint.
 Q_MIMIC+=("STAGE=${MIMIC_STAGE:-${STAGE:-all}}")
 add isaac_mimic    isaac_mimic    isaac_validate   "env $(q "${Q_MIMIC[@]}") bash $(q "$D/train/isaaclab_mimic_stack.sh")"
-add lerobot_install install       base_deps        "bash $(q "$D/10_install_lerobot.sh")"
+add lerobot_install install       base_deps        "bash $(q "$D/10_install_lerobot.sh") && bash $(q "$D/10b_install_lerobot_libero.sh")"
 add act_aloha      lerobot_train  lerobot_install  "env $(q "${Q_ACT[@]}") bash $(q "$D/train/lerobot_act_aloha.sh")"
 add diffusion_pusht lerobot_train lerobot_install  "env $(q "${Q_DP[@]}") bash $(q "$D/train/lerobot_diffusion_pusht.sh")"
 add smolvla_libero_eval lerobot_eval lerobot_install "env $(q "${Q_SMOL[@]}") bash $(q "$D/eval/lerobot_smolvla_libero.sh")"
