@@ -1,6 +1,6 @@
 Troubleshooting
 
-This page lists common issues and fixes observed while hardening the kit. See also docs/ISAAC_LAB.md and README sections.
+This page lists common issues and fixes observed while hardening the kit. See also [docs/ISAAC_LAB.md](docs/ISAAC_LAB.md) and [docs/SETUP.md](docs/SETUP.md).
 
 - Driver and CUDA toolkits
   - Symptom: Torch/OFT/GR00T wheels mismatch CUDA; flash-attn build fails; CuRobo/pytorch3d builds fail.
@@ -39,6 +39,27 @@ This page lists common issues and fixes observed while hardening the kit. See al
 - Disk space
   - Symptom: Downloads fail or the machine fills up.
   - Fix: Set RSP_HOME to a large disk; consider setting HF_HOME as well. DATA: OFT RLDS LIBERO ≈ 10 GB; lerobot/libero 1.9 GB vs HuggingFaceVLA/libero 69.9 GB.
+
+- openpi `uv sync` conflicts
+  - Symptom: `uv sync` fails with a resolver conflict in the openpi env.
+  - Fix: `rm -rf .venv && uv sync`; `uv self update` (openpi README).
+- JAX OOM during openpi LoRA fine-tuning
+  - Symptom: JAX runs out of memory on a 24 GB card.
+  - Fix: `XLA_PYTHON_CLIENT_MEM_FRACTION=0.9` (default in the script); close other GPU processes (`nvidia-smi`); disable EMA.
+- openpi CUDA errors
+  - Symptom: CUDA library conflicts at runtime.
+  - Fix: openpi says system CUDA libs can conflict, since the wheels already bring CUDA; try removing system CUDA from `LD_LIBRARY_PATH`.
+- GR00T: `CUDA_HOME is unset`
+  - Fix: `export CUDA_HOME=/usr/local/cuda` (or run its `scripts/deployment/dgpu/install_deps.sh`).
+- π0/π0.5: `QUANTILES normalization mode requires q01 and q99`
+  - Fix: use MEAN_STD mapping (already in the script) or `lerobot-edit-dataset … recompute_stats`.
+- LeRobot feature-key mismatch on SmolVLA / LIBERO
+  - Fix: `--rename_map` (the eval scripts set `image→camera1`, `image2→camera2`).
+- OpenVLA-OFT results far below the paper
+  - Fix: `--center_crop True`; evaluate on the same GPU type you trained on, or merge LoRA on the eval GPU (LIBERO.md).
+- Isaac Lab smoke test fails only with `physics=isaacsim_physx`
+  - Symptom: Newton smokes pass, the PhysX / Isaac Sim smoke fails.
+  - Fix: the Isaac Sim wheel or binary is not visible in the env; check `02_…/report.txt`. The first launch caches shaders and can be slow.
 
 WSL2 (Windows 11, Ubuntu 24.04) - see docs/WSL2.md
 
