@@ -1,16 +1,18 @@
 # Validation: what was tested, how, and the results
 
 This page documents the kit's validation run: the headless runner, the 14 steps it runs, the exact
-quick and full-length settings (taken from the scripts), the results measured so far on the dual RTX 3090
-workstation, the problems found and fixed on the way, and how to rerun everything.
+quick and full-length settings (taken from the scripts), the results measured on lcc-TRX40 (dual RTX 3090) and lcc-4090 (RTX 4090),
+the problems found and fixed on the way, and how to rerun everything.
 
-!!! summary "Status (Nov 1, 2026)"
-    * **Quick run (`QUICK=1`) on the dual RTX 3090 workstation: all 14 steps PASS** (Oct 31 – Nov 1, 2026).
+!!! summary "Status (Nov 4, 2026)"
+    * **Quick run (`QUICK=1`) on lcc-TRX40 (dual RTX 3090): all 14 steps PASS** (Oct 31 – Nov 1, 2026).
       Quick-mode success rates are pipeline checks, not meaningful policy scores.
-    * **Full-length run on the dual RTX 3090 workstation (Nov 1, 2026): all 10 steps PASS.** `isaac_mimic` first
+    * **Full-length run on lcc-TRX40 (Nov 1, 2026): all 10 steps PASS.** `isaac_mimic` first
       failed on robomimic's "overwrite?" prompt; the fix (`5d1f64e`) passed on rerun `20261101-221416` (88%, 44/50).
       See [Full-length run](#full-length-run-dual-rtx-3090).
-    * RTX 4090 workstation and RTX 5090 Laptop (WSL2): not validated yet.
+    * **lcc-TRX40 caveat:** this machine has faulty RAM (memtester bit flips, Nov 2026). Its results are not trustworthy until the RAM is fixed and the runs are repeated.
+    * **lcc-4090 (RTX 4090): quick run and full-length training/eval done Nov 4, 2026.** Isaac Lab was upgraded in place to 3.0.0 and validated. Full-length highlights: Mimic 86% (43/50); ManiSkill PushCube 100%; Isaac Lift mean reward 23.5; Diffusion PushT 42% (50 eps); ACT aloha 30% (10 eps); π0.5 LIBERO 97.0% (400 eps); SmolVLA LIBERO 83.0% (400 eps, re-plan every 10 steps, dedicated MuJoCo 3.3.2 env). See [lcc-4090](#quick-and-full-length-run-lcc-4090).
+    * WSL2 (including an RTX 5090 laptop profile) is supported but is not being tested for now ([WSL2.md](WSL2.md)).
 
 ## Contents
 
@@ -18,10 +20,11 @@ workstation, the problems found and fixed on the way, and how to rerun everythin
 2. [The 14 steps](#the-14-steps)
 3. [Results: quick run, dual RTX 3090](#quick-run-dual-rtx-3090)
 4. [Full-length run, dual RTX 3090](#full-length-run-dual-rtx-3090)
-5. [Issues found and fixed during validation](#issues-found-and-fixed-during-validation)
-6. [How to run](#how-to-run)
-7. [Machine profiles](#machine-profiles)
-8. [Docs site](#docs-site)
+5. [Quick and full-length run, lcc-4090](#quick-and-full-length-run-lcc-4090)
+6. [Issues found and fixed during validation](#issues-found-and-fixed-during-validation)
+7. [How to run](#how-to-run)
+8. [Machine profiles](#machine-profiles)
+9. [Docs site](#docs-site)
 
 ---
 
@@ -106,6 +109,9 @@ Notes:
 
 ## Quick run, dual RTX 3090
 
+!!! warning "lcc-TRX40 RAM"
+    This machine has faulty RAM (memtester bit flips, Nov 2026). The numbers in this section are not trustworthy until the RAM is fixed and the runs are repeated.
+
 **Machine:** lcc-TRX40, native Ubuntu 22.04.5, 2× RTX 3090 24 GB (sm_86), NVIDIA driver 595, profile `dual3090`.
 Isaac Sim 6.2.0 + Isaac Lab 3.0.0 (uv mode, `~/IsaacLab/.venv`, Python 3.12.15, torch 2.11.0+cu130).
 **Mode:** `QUICK=1`, runs between **Oct 31 and Nov 1, 2026** (several reruns with `ONLY_STEPS` after fixes;
@@ -139,6 +145,9 @@ each row is the latest passing run).
 
 ## Full-length run, dual RTX 3090
 
+!!! warning "lcc-TRX40 RAM"
+    This machine has faulty RAM (memtester bit flips, Nov 2026). The numbers in this section are not trustworthy until the RAM is fixed and the runs are repeated.
+
 **Run `20261101-121944` (Nov 1, 2026, `QUICK=0`, `SKIP_INSTALL=1`), split across the two GPUs:** Isaac steps on
 GPU 0 (`runs/gpu0`), LeRobot / openpi / ManiSkill on GPU 1 (`runs/gpu1`). **10/10 PASS** (`isaac_mimic` from Mimic-only rerun `20261101-221416`, GPU 0, after fix `5d1f64e`).
 Numbers are copied from the two `SUMMARY.md` files.
@@ -161,6 +170,31 @@ Numbers are copied from the two `SUMMARY.md` files.
   the other lane's memory (e.g. the failed Mimic run showed 17983 MiB while Diffusion ran on GPU 1; the GPU-0-only rerun peaked at 2769 MiB). Since `6d43958`, a split run counts
   only its own `CUDA_VISIBLE_DEVICES` GPU. Per-GPU samples of this run are in `runs/gpu*/*/<step>.gpu.csv`.
 * Install steps (`base_deps`, `*_install`) were skipped with `SKIP_INSTALL=1` because they had already passed.
+
+
+## Quick and full-length run, lcc-4090
+
+**Machine:** lcc-4090, native Ubuntu 22.04.5, 1× RTX 4090 24 GB (sm_89), NVIDIA driver 595, profile `rtx4090`.
+Isaac Lab was upgraded in place from 2.1.1 to **v3.0.0** (branch `isaaclab-3.0.0`); `env_isaaclab` was recreated (Python 3.12, `isaacsim` 6.2.0.0 pip wheel, torch 2.11.0+cu130).
+
+**Quick run** (`QUICK=1 RUN_MIMIC=1`, Nov 4, 2026): **14/14 PASS** after the Isaac upgrade (the first `isaac_validate` failed on the old 2.1.1 env and was rerun). Quick-mode scores are pipeline checks, not policy scores (ACT 20%, Diffusion 0% at 2k steps, Mimic 0/5 at 20 epochs, as on the 3090 quick run).
+
+**Full-length results (Nov 4, 2026):**
+
+| Step / eval | Settings | Result | Key metric | Run folder under `runs/4090/` |
+|---|---|---|---|---|
+| `isaac_validate` / PhysX smoke | Isaac Lab 3.0 + Isaac Sim 6.2 | PASS | checks PASS=11 FAIL=0 | `20261104-085856`, `20261104-145525` |
+| `isaac_rl_franka` | Isaac-Lift-Franka, 1500 iterations, 1024 envs | PASS | mean reward **23.5**, iter 1499 | `20261104-145525` |
+| `isaac_mimic` | 1000 demos, 1000 epochs, 50 rollouts | PASS | play success **86%** (43/50) | `20261104-114610` |
+| `act_aloha` | 20k steps, 10 eval episodes | PASS | eval success **30%** (60% at 5k steps) | `20261104-150800` |
+| `diffusion_pusht` | 50k steps, 50 eval episodes | PASS | eval success **42%** (14→28→36→40→42% by 10k-step checkpoints) | `20261104-152243` |
+| `maniskill_ppo` | PushCube-v1, 2M steps | PASS | eval success_once **1.0** (100%) | `20261104-150646` |
+| π0.5 (openpi) LIBERO | 4 suites, 10 episodes/task (400 eps) | PASS | **97.0%** (spatial 100 / object 98 / goal 98 / long 92) | `20261104-004158` |
+| SmolVLA LIBERO | 4 suites, 10 episodes/task, seed 1000, `n_action_steps=10` | PASS | **83.0%** (spatial 83 / object 90 / goal 87 / long 72) in the dedicated MuJoCo 3.3.2 env | `~/robot-sim/logs/eval_smolvla_libero_mujoco332_20261104-170229` |
+
+SmolVLA notes (same 400-episode protocol): the kit originally ran the `lerobot/smolvla_libero` checkpoint with `n_action_steps=50` (open-loop chunk) and scored **65.2%**. Re-planning every 10 steps (PR #7) raised that to **82.2%** on MuJoCo 3.8.1 (paper Table 13: 82.8% at 10 steps; headline 87.3%). A separate env with **MuJoCo 3.3.2** (now `envs/lerobot-libero`, PR #8) brought **libero_spatial task 5 from 0/10 to 8/10** and the average to **83.0%**. MuJoCo ≥ 3.4 breaks that task; ACT/ALOHA stay on `envs/lerobot` (MuJoCo 3.8.1).
+
+Each trained task has a rollout mp4 and a training plot under `runs/4090/<run>/media/`.
 
 ## Issues found and fixed during validation
 
@@ -273,9 +307,9 @@ The profile is auto-selected from the GPU name ([`scripts/lib/profiles/`](../scr
 
 | Profile | Machine | Status |
 |---|---|---|
-| `dual3090` | lcc-TRX40: 2× RTX 3090 24 GB (sm_86), native Ubuntu 22.04, driver 595 | **Validated** (quick run, all 14 steps PASS); full-length run in progress |
-| `rtx4090` | second workstation: RTX 4090 24 GB (sm_89), native Ubuntu 22.04, driver 595, 64 GB RAM | not validated yet |
-| `rtx5090_laptop_wsl` | Windows laptop: RTX 5090 Laptop GPU 24 GB (Blackwell sm_120), WSL2 Ubuntu 24.04, Windows driver 596.36 | not validated yet (see [WSL2.md](WSL2.md)) |
+| `dual3090` | lcc-TRX40: 2× RTX 3090 24 GB (sm_86), native Ubuntu 22.04, driver 595 | Quick 14/14 PASS (Oct 31 – Nov 1); full-length 10/10 PASS (Nov 1). **Caveat:** faulty RAM (memtester bit flips, Nov 2026) — results are not trustworthy until the RAM is fixed and the runs are repeated. |
+| `rtx4090` | lcc-4090: RTX 4090 24 GB (sm_89), native Ubuntu 22.04, driver 595 | **Validated** (quick + full-length, Nov 4, 2026). See [lcc-4090](#quick-and-full-length-run-lcc-4090). |
+| `rtx5090_laptop_wsl` | Windows laptop: RTX 5090 Laptop GPU 24 GB (Blackwell sm_120), WSL2 Ubuntu 24.04, Windows driver 596.36 | Supported, but WSL2 is not being tested for now (see [WSL2.md](WSL2.md)) |
 
 ## Docs site
 
