@@ -40,6 +40,8 @@ validation:
 nav:
   - Home: index.md
   - Validation results: VALIDATION.md
+  - Setup: SETUP.md
+  - Models and 24 GB fit: MODELS.md
   - WSL2 / headless runner: WSL2.md
   - Isaac Lab: ISAAC_LAB.md
   - Docker: DOCKER.md

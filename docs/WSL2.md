@@ -6,7 +6,7 @@ automatically from the GPU name, and WSL2 is detected automatically. You don't n
 | Machine | Profile (auto) | OS | GPU | Path the kit takes |
 |---|---|---|---|---|
 | lcc-TRX40 workstation | `dual3090` | native Ubuntu 22.04, driver 595 | 2x RTX 3090 24 GB (Ampere, sm_86) | native Linux, same torch/CUDA as PR #1 |
-| second workstation | `rtx4090` | native Ubuntu 22.04, driver 595 | RTX 4090 24 GB (Ada, sm_89), 64 GB RAM | native Linux, same torch/CUDA as PR #1 |
+| lcc-4090 | `rtx4090` | native Ubuntu 22.04, driver 595 | RTX 4090 24 GB (Ada, sm_89) | native Linux, same torch/CUDA path; validated Nov 4, 2026 |
 | Windows laptop | `rtx5090_laptop_wsl` | **WSL2 Ubuntu 24.04**, Windows driver 596.36 | **RTX 5090 Laptop GPU 24 GB (Blackwell, sm_120)** | WSL2 + Blackwell: cu128 torch, rendering fallbacks |
 
 How the profile is chosen: a GPU name containing `5090` and `Laptop` selects `rtx5090_laptop_wsl`, `4090` selects
